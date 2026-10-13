@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Needed to send fruit photos to the Roboflow AI workflow (release builds). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="andriodfruitectivesv2"
         android:name="${applicationName}"
@@ -40,6 +42,10 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- Lets the app find a camera app to take fruit photos (Android 11+ package visibility). -->
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE"/>
         </intent>
     </queries>
 </manifest>

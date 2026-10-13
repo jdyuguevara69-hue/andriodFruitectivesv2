@@ -46,3 +46,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Roboflow API key (passed with --dart-define-from-file). Never commit it.
+roboflow.env.json

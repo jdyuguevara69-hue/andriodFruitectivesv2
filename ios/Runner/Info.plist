@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Fruitectives uses the camera to photograph fruit and check its ripeness and freshness.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Fruitectives lets you choose a fruit photo from your library to analyze.</string>
 </dict>
 </plist>

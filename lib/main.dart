@@ -1,10 +1,14 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'roboflow_client.dart';
 
 bool firebaseReady = false;
 User? get currentUser => firebaseReady ? FirebaseAuth.instance.currentUser : null;
@@ -1200,7 +1204,7 @@ class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
   @override Widget build(BuildContext context)=>AppPage(tab:1,child:SingleChildScrollView(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
     heading('AI TOOL',sub:'Explore the Fruitectives features'),const SizedBox(height:7),const Text('Powerful fruit insights, all in one place.',style:TextStyle(color:muted,fontSize:12)),const SizedBox(height:18),
-    _tool(context,'📸','Fruit Recognition','Identify a fruit from a photo',const UploadPage()),_tool(context,'🟢','Ripeness Classification','Explore ripeness stages',const GuidePage(title:'Ripeness Classification',kind:0)),_tool(context,'💧','Freshness Assessment','Review freshness indicators',const GuidePage(title:'Freshness Assessment Overview',kind:1)),_tool(context,'🔎','Defect Detection','Common visible fruit defects',const GuidePage(title:'Defect Detection',kind:2)),_tool(context,'📅','Shelf-life Prediction','Storage guidance and shelf life',const GuidePage(title:'Shelf-life Prediction Overview',kind:3)),_tool(context,'🥗','Nutrition and Calories','Explore nutrition information',const NutritionPage()),const SizedBox(height:12),panel(const Text('Note: Tool pages are visual demonstrations. No AI inference is connected.',style:TextStyle(color:muted,fontSize:11))),
+    _tool(context,'📸','Fruit Recognition','Identify a fruit from a photo',const UploadPage()),_tool(context,'🟢','Ripeness Classification','Explore ripeness stages',const GuidePage(title:'Ripeness Classification',kind:0)),_tool(context,'💧','Freshness Assessment','Review freshness indicators',const GuidePage(title:'Freshness Assessment Overview',kind:1)),_tool(context,'🔎','Defect Detection','Common visible fruit defects',const GuidePage(title:'Defect Detection',kind:2)),_tool(context,'📅','Shelf-life Prediction','Storage guidance and shelf life',const GuidePage(title:'Shelf-life Prediction Overview',kind:3)),_tool(context,'🥗','Nutrition and Calories','Explore nutrition information',const NutritionPage()),const SizedBox(height:12),panel(const Text('Note: Fruit Recognition uses AI. The other tool pages are general reference guides.',style:TextStyle(color:muted,fontSize:11))),
   ])));
 }
 Widget _tool(BuildContext c,String e,String t,String d,Widget p)=>Padding(padding:const EdgeInsets.only(bottom:10),child:InkWell(onTap:()=>go(c,p),child:panel(Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:const Color(0xFFEAF3E4),borderRadius:BorderRadius.circular(14)),child:Center(child:Text(e,style:const TextStyle(fontSize:25)))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(t,style:const TextStyle(fontWeight:FontWeight.w800)),const SizedBox(height:4),Text(d,style:const TextStyle(color:muted,fontSize:11))])),const Icon(Icons.chevron_right,color:green)]))));
@@ -1240,26 +1244,32 @@ Widget _score(String t,String n)=>Container(padding:const EdgeInsets.all(13),dec
 
 // ───────────────────────── SCANS: per-user storage + stats (saved on the phone) ─────────────────────────
 // Each logged-in user has their own list of scans (key: scans_<uid>). Guests' scans are not saved.
-// NOTE: AI is not connected yet, so a "scan" produces a simulated result.
+// Real scans come from the Roboflow fruit-freshness workflow (see roboflow_client.dart).
 class Scan {
   final String id, emoji, fruit, scientific;
   final int ripeness, freshness;
   final DateTime time;
+  final String? label; // raw model class, e.g. "Rotten Banana" (null for old/demo scans)
+  final double? confidence; // model confidence 0..1
   bool saved;
   Scan({required this.id, required this.emoji, required this.fruit, required this.scientific,
-        required this.ripeness, required this.freshness, required this.time, this.saved = false});
+        required this.ripeness, required this.freshness, required this.time, this.label, this.confidence, this.saved = false});
 
+  bool get isDemo => id.startsWith('demo');
+  bool get isRotten => freshness < 45;
   bool get isFresh => freshness >= 80;
-  String get ripenessLabel => ripeness < 65 ? 'Unripe' : ripeness < 85 ? 'Ripe' : 'Very ripe';
-  String get freshnessLabel => freshness >= 85 ? 'Fresh' : freshness >= 70 ? 'Fairly fresh' : 'Not fresh';
+  String get ripenessLabel => ripeness < 65 ? 'Unripe' : ripeness < 80 ? 'Half ripe' : ripeness < 95 ? 'Ripe' : 'Overripe';
+  String get freshnessLabel => freshness >= 85 ? 'Fresh' : freshness >= 70 ? 'Fairly fresh' : isRotten ? 'Rotten' : 'Not fresh';
   String get quality => freshness >= 85 ? 'Good' : freshness >= 70 ? 'Fair' : 'Poor';
-  String get shelfLife => freshness >= 85 ? '4–6 days' : freshness >= 70 ? '2–3 days' : '1 day';
-  String get defects => freshness >= 80 ? 'None' : freshness >= 65 ? 'Low' : 'Moderate';
+  String get shelfLife => freshness >= 85 ? '4–6 days' : freshness >= 70 ? '2–3 days' : isRotten ? 'Discard' : '1 day';
+  String get defects => freshness >= 80 ? 'None' : freshness >= 65 ? 'Low' : isRotten ? 'High' : 'Moderate';
   String get recommendation => freshness >= 85
       ? 'Great condition. Store in a cool place and enjoy within the next few days.'
       : freshness >= 70
           ? 'Still good to eat. Best consumed soon; refrigerate to slow ripening.'
-          : 'Eat today or use for cooking/smoothies. Check for soft or spoiled spots first.';
+          : isRotten
+              ? 'Signs of spoilage detected. Do not eat it; discard it or compost it, and keep it away from other fruit.'
+              : 'Eat today or use for cooking/smoothies. Check for soft or spoiled spots first.';
   String get whenText {
     final now = DateTime.now();
     final t = '${time.hour % 12 == 0 ? 12 : time.hour % 12}:${time.minute.toString().padLeft(2, '0')} ${time.hour < 12 ? 'AM' : 'PM'}';
@@ -1271,9 +1281,42 @@ class Scan {
   }
 
   Map<String, dynamic> toJson() => {'id': id, 'emoji': emoji, 'fruit': fruit, 'scientific': scientific,
-    'ripeness': ripeness, 'freshness': freshness, 'time': time.toIso8601String(), 'saved': saved};
+    'ripeness': ripeness, 'freshness': freshness, 'time': time.toIso8601String(), 'saved': saved,
+    if (label != null) 'label': label, if (confidence != null) 'confidence': confidence};
   factory Scan.fromJson(Map<String, dynamic> j) => Scan(id: j['id'], emoji: j['emoji'], fruit: j['fruit'], scientific: j['scientific'],
-    ripeness: j['ripeness'], freshness: j['freshness'], time: DateTime.parse(j['time']), saved: j['saved'] ?? false);
+    ripeness: j['ripeness'], freshness: j['freshness'], time: DateTime.parse(j['time']), saved: j['saved'] ?? false,
+    label: j['label'] as String?, confidence: (j['confidence'] as num?)?.toDouble());
+}
+
+// Fruits the model knows by name. Ripeness-only classes (Matang, Mentah, …) don't name the fruit.
+const _fruitInfo = {
+  'apple': ('🍎', 'Apple', 'Malus domestica'), 'banana': ('🍌', 'Banana', 'Musa acuminata'),
+  'mango': ('🥭', 'Mango', 'Mangifera indica'), 'orange': ('🍊', 'Orange', 'Citrus sinensis'),
+  'pear': ('🍐', 'Pear', 'Pyrus communis'), 'peach': ('🍑', 'Peach', 'Prunus persica'),
+};
+
+/// Turns one detection from the workflow into a Scan.
+/// Model classes: "Fresh <fruit>", "Rotten <fruit>", "Peach", and Indonesian ripeness labels
+/// "Mentah" (unripe), "Setengah Matang" (half ripe), "Matang" (ripe), "busuk" (rotten).
+Scan scanFromDetection(FruitDetection d, {DateTime? time}) {
+  final l = d.label.toLowerCase().trim();
+  final c = d.confidence.clamp(0.0, 1.0);
+  final key = _fruitInfo.keys.where(l.contains).firstOrNull;
+  final f = key == null ? ('🍏', 'Fruit', 'Fruit type not identified') : _fruitInfo[key]!;
+  int ripeness, freshness;
+  if (l.contains('rotten') || l.contains('busuk')) {
+    ripeness = 98; freshness = (40 - 30 * c).round();
+  } else if (l.contains('setengah')) {
+    ripeness = 72; freshness = 90;
+  } else if (l.contains('mentah')) {
+    ripeness = 45; freshness = 92;
+  } else if (l.contains('matang')) {
+    ripeness = 88; freshness = 86;
+  } else { // "Fresh <fruit>" or "Peach"
+    ripeness = 82; freshness = (70 + 30 * c).round();
+  }
+  return Scan(id: DateTime.now().microsecondsSinceEpoch.toString(), emoji: f.$1, fruit: f.$2, scientific: f.$3,
+    ripeness: ripeness, freshness: freshness, time: time ?? DateTime.now(), label: d.label, confidence: d.confidence);
 }
 
 const _sampleFruits = [
@@ -1318,20 +1361,83 @@ class ScanStore {
   int get saved => scans.value.where((s) => s.saved).length;
 }
 
-/// Runs a (simulated) analysis, records it for logged-in users, then opens the result.
-Future<void> runScan(BuildContext context, {String? fruit}) async {
-  final r = Random();
-  final f = fruit == null ? _sampleFruits[r.nextInt(_sampleFruits.length)] : _sampleFruits.firstWhere((x) => x.$2 == fruit);
-  showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: Card(
+void _showAnalyzing(BuildContext context) => showDialog(context: context, barrierDismissible: false, builder: (_) => const PopScope(
+  canPop: false,
+  child: Center(child: Card(
     shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(20))),
     child: Padding(padding: EdgeInsets.all(26), child: Column(mainAxisSize: MainAxisSize.min, children: [
       CircularProgressIndicator(color: green), SizedBox(height: 16),
       Text('Analyzing fruit...', style: TextStyle(fontWeight: FontWeight.w800)),
-    ])))));
-  await Future.delayed(const Duration(milliseconds: 1400));
-  final scan = Scan(id: DateTime.now().microsecondsSinceEpoch.toString(), emoji: f.$1, fruit: f.$2, scientific: f.$3,
-    ripeness: 55 + r.nextInt(44), freshness: 58 + r.nextInt(41), time: DateTime.now());
+    ]))))));
+
+void _showScanProblem(BuildContext context, String title, String message) => showDialog(context: context, builder: (d) => AlertDialog(
+  title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+  content: Text(message),
+  actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('OK', style: TextStyle(color: green, fontWeight: FontWeight.w800)))],
+));
+
+final _picker = ImagePicker();
+final _fruitAi = FruitFreshnessClient();
+
+/// Takes a photo (or picks one from the gallery), sends it to the Roboflow workflow,
+/// saves the result for logged-in users, then opens the result page.
+Future<void> scanFruit(BuildContext context, ImageSource source) async {
+  final where = source == ImageSource.camera ? 'camera' : 'gallery';
+  if (!_fruitAi.isConfigured) {
+    _showScanProblem(context, 'AI not configured',
+      'This build has no Roboflow API key. Run the app with --dart-define-from-file=roboflow.env.json (see README).');
+    return;
+  }
+  XFile? file;
+  try {
+    // Downscale on the phone: faster upload, and the model doesn't need full-resolution photos.
+    file = await _picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85,
+      preferredCameraDevice: CameraDevice.rear);
+  } on PlatformException catch (e) {
+    if (!context.mounted) return;
+    final denied = e.code.contains('access_denied');
+    _showScanProblem(context, denied ? 'Permission needed' : 'Could not open $where',
+      denied ? 'Allow $where access for Fruitectives in your phone Settings, then try again.' : (e.message ?? e.code));
+    return;
+  }
+  if (file == null || !context.mounted) return; // user cancelled
+  final bytes = await file.readAsBytes();
+  if (!context.mounted) return;
+
+  _showAnalyzing(context);
+  FreshnessResult? result;
+  String? error;
+  try {
+    result = await _fruitAi.detectFreshness(bytes);
+  } on RoboflowException catch (e) {
+    error = e.message;
+  } catch (e) {
+    error = 'Something went wrong: $e';
+  }
+  if (!context.mounted) return;
+  Navigator.pop(context); // close "Analyzing"
+
+  if (error != null) { _showScanProblem(context, 'Analysis failed', error); return; }
+  final best = result!.best;
+  if (best == null) {
+    _showScanProblem(context, 'No fruit detected',
+      'Try again with one fruit centred in the frame, in good light, against a plain background.');
+    return;
+  }
+  final scan = scanFromDetection(best);
   await ScanStore.I.add(scan);
+  if (!context.mounted) return;
+  go(context, ResultPage(scan: scan, photo: bytes, result: result));
+}
+
+/// Demo only: shows a simulated result for a sample fruit (not saved to history).
+Future<void> runScan(BuildContext context, {String? fruit}) async {
+  final r = Random();
+  final f = fruit == null ? _sampleFruits[r.nextInt(_sampleFruits.length)] : _sampleFruits.firstWhere((x) => x.$2 == fruit);
+  _showAnalyzing(context);
+  await Future.delayed(const Duration(milliseconds: 900));
+  final scan = Scan(id: 'demo-${DateTime.now().microsecondsSinceEpoch}', emoji: f.$1, fruit: f.$2, scientific: f.$3,
+    ripeness: 55 + r.nextInt(44), freshness: 58 + r.nextInt(41), time: DateTime.now());
   if (!context.mounted) return;
   Navigator.pop(context); // close "Analyzing"
   go(context, ResultPage(scan: scan));
@@ -1399,20 +1505,21 @@ class UploadPage extends StatelessWidget {
         Icon(Icons.add_photo_alternate_outlined, size: 62, color: ink), SizedBox(height: 12),
         Text('Add a fruit photo', style: TextStyle(fontWeight: FontWeight.w800)),
         SizedBox(height: 4),
-        Padding(padding: EdgeInsets.symmetric(horizontal: 30), child: Text('Demo mode: AI is not connected yet, so a simulated result is generated.',
+        Padding(padding: EdgeInsets.symmetric(horizontal: 30), child: Text('Take a clear photo of one fruit. Our AI checks its type, ripeness and freshness.',
           textAlign: TextAlign.center, style: TextStyle(color: muted, fontSize: 11))),
       ])),
     const SizedBox(height: 14),
-    PrimaryButton(text: 'Take Photo', icon: Icons.camera_alt, onTap: () => runScan(context)),
+    PrimaryButton(text: 'Take Photo', icon: Icons.camera_alt, onTap: () => scanFruit(context, ImageSource.camera)),
     const SizedBox(height: 10),
-    OutlineButtonX(text: 'Choose from Gallery', icon: Icons.photo_library_outlined, onTap: () => runScan(context)),
+    OutlineButtonX(text: 'Choose from Gallery', icon: Icons.photo_library_outlined, onTap: () => scanFruit(context, ImageSource.gallery)),
     if (currentUser == null) ...[
       const SizedBox(height: 12),
       const Row(children: [Icon(Icons.info_outline, size: 15, color: muted), SizedBox(width: 6),
         Expanded(child: Text('You are a guest. Results will not be saved to your history.', style: TextStyle(color: muted, fontSize: 11)))]),
     ],
     const SizedBox(height: 20),
-    const Text('Try a sample', style: TextStyle(fontWeight: FontWeight.w900)),
+    const Text('Try a demo', style: TextStyle(fontWeight: FontWeight.w900)),
+    const Text('Simulated results, not saved to history', style: TextStyle(color: muted, fontSize: 11)),
     const SizedBox(height: 10),
     Wrap(spacing: 8, runSpacing: 8, children: _sampleFruits.take(6).map((f) => ActionChip(
       onPressed: () => runScan(context, fruit: f.$2),
@@ -1435,19 +1542,36 @@ final _demoScan = Scan(id: 'demo', emoji: '🥭', fruit: 'Mango', scientific: 'M
 
 class ResultPage extends StatelessWidget {
   final Scan? scan;
-  const ResultPage({super.key, this.scan});
+  final Uint8List? photo; // the photo just analyzed (not stored in history)
+  final FreshnessResult? result;
+  const ResultPage({super.key, this.scan, this.photo, this.result});
   @override Widget build(BuildContext context) {
     final s = scan ?? _demoScan;
+    final r = result;
     return AppPage(tab: 2, child: SingleChildScrollView(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      heading('Result Overview', sub: s.id == 'demo' ? 'Sample result' : s.whenText),
+      heading('Result Overview', sub: s.isDemo ? 'Demo result (simulated)' : s.whenText),
       const SizedBox(height: 14),
       panel(Column(children: [
-        Text(s.emoji, style: const TextStyle(fontSize: 80)),
+        if (photo != null && r != null && r.imageWidth > 0 && r.imageHeight > 0)
+          ConstrainedBox(constraints: const BoxConstraints(maxHeight: 280), child: AspectRatio(
+            aspectRatio: r.imageWidth / r.imageHeight,
+            child: ClipRRect(borderRadius: BorderRadius.circular(14), child: Stack(fit: StackFit.expand, children: [
+              Image.memory(photo!, fit: BoxFit.fill),
+              CustomPaint(painter: _DetectionPainter(r)),
+            ]))))
+        else
+          Text(s.emoji, style: const TextStyle(fontSize: 80)),
+        if (photo != null) const SizedBox(height: 10),
         Text(s.fruit, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
         Text(s.scientific, style: const TextStyle(color: muted, fontSize: 12, fontStyle: FontStyle.italic)),
+        if (s.label != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(
+          'Detected: ${s.label}${s.confidence != null ? ' • ${(s.confidence! * 100).round()}% confidence' : ''}',
+          style: const TextStyle(color: muted, fontSize: 11.5, fontWeight: FontWeight.w600))),
         const SizedBox(height: 10),
-        const Row(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.check_circle, color: green), SizedBox(width: 6),
-          Text('Analysis Complete', style: TextStyle(color: green, fontWeight: FontWeight.w800))]),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(s.isRotten ? Icons.warning_amber_rounded : Icons.check_circle, color: s.isRotten ? const Color(0xFFC2410C) : green), const SizedBox(width: 6),
+          Text(s.isRotten ? 'Spoilage Detected' : 'Analysis Complete',
+            style: TextStyle(color: s.isRotten ? const Color(0xFFC2410C) : green, fontWeight: FontWeight.w800))]),
         const SizedBox(height: 15),
         Row(children: [Expanded(child: _score('Ripeness', '${s.ripeness}%')), const SizedBox(width: 10), Expanded(child: _score('Freshness', '${s.freshness}%'))]),
       ])),
@@ -1467,7 +1591,8 @@ class ResultPage extends StatelessWidget {
         text: s.saved ? 'Saved ✓  (tap to remove)' : 'Save Result',
         icon: s.saved ? Icons.bookmark : Icons.bookmark_border,
         onTap: () {
-          if (currentUser == null || s.id == 'demo') { toast(context, 'Log in to save results to your account.'); return; }
+          if (s.isDemo) { toast(context, 'Demo results can\'t be saved. Scan a real fruit to save it.'); return; }
+          if (currentUser == null) { toast(context, 'Log in to save results to your account.'); return; }
           ScanStore.I.toggleSaved(s);
         },
       )),
@@ -1479,6 +1604,29 @@ class ResultPage extends StatelessWidget {
       OutlineButtonX(text: 'Nutrition Information', onTap: () => go(context, const NutritionPage())),
     ])));
   }
+}
+
+/// Draws the model's bounding boxes over the analyzed photo.
+class _DetectionPainter extends CustomPainter {
+  final FreshnessResult r;
+  _DetectionPainter(this.r);
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sx = size.width / r.imageWidth, sy = size.height / r.imageHeight;
+    for (final d in r.detections) {
+      final bad = d.label.toLowerCase().contains('rotten') || d.label.toLowerCase().contains('busuk');
+      final color = bad ? const Color(0xFFEA580C) : const Color(0xFF22C55E);
+      final rect = Rect.fromCenter(center: Offset(d.x * sx, d.y * sy), width: d.width * sx, height: d.height * sy);
+      canvas.drawRRect(RRect.fromRectAndRadius(rect, const Radius.circular(6)),
+        Paint()..style = PaintingStyle.stroke..strokeWidth = 3..color = color);
+      final tp = TextPainter(textDirection: TextDirection.ltr, text: TextSpan(
+        text: ' ${d.label} ${(d.confidence * 100).round()}% ',
+        style: TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700, backgroundColor: color)))..layout();
+      tp.paint(canvas, Offset(rect.left.clamp(0.0, max(0.0, size.width - tp.width)), max(0.0, rect.top - tp.height)));
+    }
+  }
+  @override
+  bool shouldRepaint(_DetectionPainter old) => old.r != r;
 }
 
 class DetailResultPage extends StatelessWidget {
