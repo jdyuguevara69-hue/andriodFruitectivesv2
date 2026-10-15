@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'local_detector.dart';
 import 'roboflow_client.dart';
 
 bool firebaseReady = false;
@@ -22,6 +23,7 @@ Future<void> main() async {
     debugPrint('Firebase init failed: $e');
   }
   runApp(const FruitectivesApp());
+  LocalFruitDetector.instance.warmUp(); // load the on-device AI model in the background
 }
 
 // Turns Firebase error codes into friendly messages.
@@ -1244,7 +1246,7 @@ Widget _score(String t,String n)=>Container(padding:const EdgeInsets.all(13),dec
 
 // ───────────────────────── SCANS: per-user storage + stats (saved on the phone) ─────────────────────────
 // Each logged-in user has their own list of scans (key: scans_<uid>). Guests' scans are not saved.
-// Real scans come from the Roboflow fruit-freshness workflow (see roboflow_client.dart).
+// Real scans come from the on-device YOLO model (see local_detector.dart); no internet needed.
 class Scan {
   final String id, emoji, fruit, scientific;
   final int ripeness, freshness;
@@ -1377,20 +1379,15 @@ void _showScanProblem(BuildContext context, String title, String message) => sho
 ));
 
 final _picker = ImagePicker();
-final _fruitAi = FruitFreshnessClient();
+final _fruitAi = LocalFruitDetector.instance;
 
-/// Takes a photo (or picks one from the gallery), sends it to the Roboflow workflow,
+/// Takes a photo (or picks one from the gallery), runs the on-device AI model on it,
 /// saves the result for logged-in users, then opens the result page.
 Future<void> scanFruit(BuildContext context, ImageSource source) async {
   final where = source == ImageSource.camera ? 'camera' : 'gallery';
-  if (!_fruitAi.isConfigured) {
-    _showScanProblem(context, 'AI not configured',
-      'This build has no Roboflow API key. Run the app with --dart-define-from-file=roboflow.env.json (see README).');
-    return;
-  }
   XFile? file;
   try {
-    // Downscale on the phone: faster upload, and the model doesn't need full-resolution photos.
+    // Downscale on the phone: faster to decode, and the model only sees 416x416 anyway.
     file = await _picker.pickImage(source: source, maxWidth: 1280, maxHeight: 1280, imageQuality: 85,
       preferredCameraDevice: CameraDevice.rear);
   } on PlatformException catch (e) {
@@ -1409,7 +1406,7 @@ Future<void> scanFruit(BuildContext context, ImageSource source) async {
   String? error;
   try {
     result = await _fruitAi.detectFreshness(bytes);
-  } on RoboflowException catch (e) {
+  } on LocalDetectorException catch (e) {
     error = e.message;
   } catch (e) {
     error = 'Something went wrong: $e';

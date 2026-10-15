@@ -16,8 +16,23 @@ For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
 
-## Fruit scanning (Roboflow AI)
+## Fruit scanning (on-device AI)
 
+**Take Photo** / **Choose from Gallery** now run the AI **locally on the phone** — no internet and no API key needed.
+- Model: `assets/models/fruit_yolo26n.onnx` = `AI Training/runs/detect/train-3/weights/best.onnx`
+  (Ultralytics YOLO26n, 416×416, 22 classes from dataset v6). To update it, re-export and replace that file
+  (if the class list changes, update `fruitModelLabels` in `lib/local_detector.dart`).
+- Code: `lib/local_detector.dart` (`LocalFruitDetector.instance.detectFreshness`) using the `onnxruntime` plugin:
+  letterbox to 416, run the model, confidence ≥ 0.25, class-agnostic NMS (IoU 0.5).
+  It returns the same `FreshnessResult` the Roboflow client used, so the result page is unchanged.
+- The model loads in the background at app start; a scan takes ~0.1 s after that (measured on an arm64 emulator).
+- Android ABIs: arm64-v8a and armeabi-v7a only (x86/x86_64 emulators are not supported by the plugin).
+- `android/build.gradle.kts` raises the onnxruntime plugin's compileSdk to 36 (it ships with 33).
+- Tests: `flutter test test/local_detector_test.dart` (post-processing).
+
+## Cloud scanning (Roboflow AI, no longer used by the Scan tab)
+
+The previous cloud client is kept in `lib/roboflow_client.dart`. It used to:
 **Take Photo** / **Choose from Gallery** on the Scan tab open the phone's camera or photo library
 (`image_picker`), shrink the photo to 1280 px, and send it to the Roboflow Workflow
 **Fruit Freshness vfruit-freshness-4f8dm-3-rfdetr-small-t1 Logic**
