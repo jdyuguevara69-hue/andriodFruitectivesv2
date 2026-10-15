@@ -22,12 +22,11 @@ samples, guidance on mobile development, and a full API reference.
 - Model: `assets/models/fruit_yolo26n.onnx` = `AI Training/runs/detect/train-3/weights/best.onnx`
   (Ultralytics YOLO26n, 416×416, 22 classes from dataset v6). To update it, re-export and replace that file
   (if the class list changes, update `fruitModelLabels` in `lib/local_detector.dart`).
-- Code: `lib/local_detector.dart` (`LocalFruitDetector.instance.detectFreshness`) using the `onnxruntime` plugin:
+- Code: `lib/local_detector.dart` (`LocalFruitDetector.instance.detectFreshness`) using the `flutter_onnxruntime` plugin
+  (official `onnxruntime-android` 1.28, 16 KB page-size compatible for Android 15+ devices):
   letterbox to 416, run the model, confidence ≥ 0.25, class-agnostic NMS (IoU 0.5).
   It returns the same `FreshnessResult` the Roboflow client used, so the result page is unchanged.
-- The model loads in the background at app start; a scan takes ~0.1 s after that (measured on an arm64 emulator).
-- Android ABIs: arm64-v8a and armeabi-v7a only (x86/x86_64 emulators are not supported by the plugin).
-- `android/build.gradle.kts` raises the onnxruntime plugin's compileSdk to 36 (it ships with 33).
+- The model loads in the background at app start; a scan takes ~0.2 s after that (measured on an arm64 16 KB emulator).
 - Tests: `flutter test test/local_detector_test.dart` (post-processing).
 
 ## Cloud scanning (Roboflow AI, no longer used by the Scan tab)

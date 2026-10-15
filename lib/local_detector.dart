@@ -10,9 +10,8 @@ import 'dart:isolate';
 import 'dart:math';
 import 'dart:typed_data';
 
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:image/image.dart' as img;
-import 'package:onnxruntime/onnxruntime.dart';
+import 'package:flutter_onnxruntime/flutter_onnxruntime.dart';
 
 import 'roboflow_client.dart' show FreshnessResult, FruitDetection;
 
@@ -120,10 +119,8 @@ class LocalFruitDetector {
 
   Future<OrtSession> _load() => _loading ??= () async {
     try {
-      OrtEnv.instance.init();
-      final raw = await rootBundle.load(_modelAsset);
-      final options = OrtSessionOptions()..setIntraOpNumThreads(4);
-      return _session = OrtSession.fromBuffer(raw.buffer.asUint8List(), options);
+      return _session = await OnnxRuntime().createSessionFromAsset(_modelAsset,
+          options: OrtSessionOptions(intraOpNumThreads: 4));
     } catch (e) {
       _loading = null; // allow a retry
       throw LocalDetectorException('Could not load the on-device AI model: $e');
@@ -138,28 +135,30 @@ class LocalFruitDetector {
     final session = await _load();
     final prep = await Isolate.run(() => _prepare(imageBytes));
 
-    final input = OrtValueTensor.createTensorWithDataList(prep.input, [1, 3, _inputSize, _inputSize]);
-    final runOptions = OrtRunOptions();
-    List<OrtValue?>? outputs;
+    final input = await OrtValue.fromList(prep.input, [1, 3, _inputSize, _inputSize]);
+    Map<String, OrtValue>? outputs;
     try {
-      outputs = await session.runAsync(runOptions, {session.inputNames.first: input});
-      final raw = outputs?.first?.value;
-      if (raw is! List || raw.isEmpty || raw.first is! List) {
-        throw const LocalDetectorException('The AI model returned an unexpected output.');
+      outputs = await session.run({session.inputNames.first: input});
+      final out = outputs[session.outputNames.first];
+      final shape = out?.shape ?? const [];
+      if (out == null || shape.length != 3 || shape[1] < 5) {
+        throw LocalDetectorException('The AI model returned an unexpected output $shape.');
       }
-      final rows = [for (final row in raw.first as List) [for (final v in row as List) (v as num).toDouble()]];
+      final flat = await out.asFlattenedList(); // [1, rows, anchors] row-major
+      final numRows = shape[1], anchors = shape[2];
+      final rows = [for (var r = 0; r < numRows; r++)
+          [for (var a = 0; a < anchors; a++) (flat[r * anchors + a] as num).toDouble()]];
       final dets = decodeYoloOutput(rows, scale: prep.scale, padX: prep.padX, padY: prep.padY,
           imageWidth: prep.width, imageHeight: prep.height);
       return FreshnessResult(imageWidth: prep.width, imageHeight: prep.height, detections: dets);
     } finally {
-      input.release();
-      runOptions.release();
-      for (final o in outputs ?? const <OrtValue?>[]) { o?.release(); }
+      await input.dispose();
+      for (final o in outputs?.values ?? const <OrtValue>[]) { await o.dispose(); }
     }
   }
 
-  void close() {
-    _session?.release();
+  Future<void> close() async {
+    await _session?.close();
     _session = null;
     _loading = null;
   }
