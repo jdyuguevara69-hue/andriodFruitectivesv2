@@ -9,7 +9,8 @@ import 'package:http/testing.dart';
 import 'package:fruitectives_frontend/main.dart' show scanFromDetection;
 import 'package:fruitectives_frontend/roboflow_client.dart';
 
-// Real response captured from the workflow (REST endpoint wraps it in "outputs").
+// Response captured from this project's workflow (REST endpoint wraps it in "outputs").
+// The v6 workflow keeps the same output ("predictions", object detection), so the shape is unchanged.
 const _realResponse = '''
 {"outputs":[{"predictions":{"image":{"width":2771,"height":2542},"predictions":[
  {"width":2751,"height":1145,"x":1395.5,"y":1329.5,"confidence":0.9521309733390808,"class_id":8,
@@ -63,7 +64,7 @@ void main() {
       var calls = 0;
       final mock = MockClient((req) async {
         calls++;
-        expect(req.url.toString(), contains('/workflows/fruit-freshness-vfruit-freshness-4f8dm-3-rfdetr-small-t1-logic'));
+        expect(req.url.toString(), contains('/workflows/fruit-freshness-vfruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1-7893da-logic'));
         expect(req.headers['Authorization'], 'Bearer test-key');
         final body = jsonDecode(req.body) as Map;
         expect(body['inputs']['image']['type'], 'base64');
@@ -83,6 +84,13 @@ void main() {
       expect(calls, 1);
     });
 
+    test('402 (credits exhausted) is a quota error (no retry)', () async {
+      var calls = 0;
+      final client = FruitFreshnessClient(apiKey: 'k', httpClient: MockClient((_) async { calls++; return http.Response('{"reason":"credit_cap_exceeded"}', 402); }));
+      await expectLater(client.detectFreshness(Uint8List(1)), throwsA(isA<RoboflowQuotaException>()));
+      expect(calls, 1);
+    });
+
     test('missing key is a config error', () async {
       await expectLater(FruitFreshnessClient(apiKey: '').detectFreshness(Uint8List(1)),
           throwsA(isA<RoboflowConfigException>()));
@@ -97,6 +105,7 @@ void main() {
     final client = FruitFreshnessClient(apiKey: liveKey);
     final r = await client.detectFreshness(img.bodyBytes);
     client.close();
+    // Expected output keys: predictions.image.{width,height} and predictions.predictions[].{class,confidence}
     expect(r.imageWidth, greaterThan(0));
     expect(r.detections, isNotEmpty);
     expect(r.best!.label, isNotEmpty);

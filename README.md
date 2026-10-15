@@ -35,14 +35,17 @@ samples, guidance on mobile development, and a full API reference.
 The previous cloud client is kept in `lib/roboflow_client.dart`. It used to:
 **Take Photo** / **Choose from Gallery** on the Scan tab open the phone's camera or photo library
 (`image_picker`), shrink the photo to 1280 px, and send it to the Roboflow Workflow
-**Fruit Freshness vfruit-freshness-4f8dm-3-rfdetr-small-t1 Logic**
-(`jeffrey-daniel-yu-guevara-s-workspace/fruit-freshness-vfruit-freshness-4f8dm-3-rfdetr-small-t1-logic`).
+**Fruit Freshness vfruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1--7893da Logic**
+(`jeffrey-daniel-yu-guevara-s-workspace/fruit-freshness-vfruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1-7893da-logic`).
+It runs model `fruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1--7893da` (dataset v6, RF-DETR NAS object detection).
+To switch to another workflow later, change `_workflowId` in `lib/roboflow_client.dart` (and the URL check in the test).
 The result page shows the photo with the detected boxes, the fruit, and ripeness/freshness.
 The "Try a demo" chips still give simulated results and are not saved to history.
 
 - Client code: `lib/roboflow_client.dart` (`FruitFreshnessClient.detectFreshness`, 30 s timeout, 2 retries with backoff, typed `RoboflowException`s).
+  HTTP 402 means the Roboflow workspace is out of credits and surfaces as `RoboflowQuotaException` ("Analysis failed" in the app).
 - Workflow output used: `predictions` → `{image: {width, height}, predictions: [{class, confidence, x, y, width, height}]}`.
-- Model classes: `Fresh/Rotten Apple|Banana|Mango|Orange`, `fresh/rotten pear`, `Peach`, and ripeness labels
+- Model classes (seen with the v3 model; the mapping matches on keywords, so it also handles v6): `Fresh/Rotten Apple|Banana|Mango|Orange`, `fresh/rotten pear`, `Peach`, and ripeness labels
   `Mentah` (unripe), `Setengah Matang` (half ripe), `Matang`/`matang` (ripe), `busuk` (rotten). Mapping to the
   app's scores is in `scanFromDetection()` in `lib/main.dart`.
 
@@ -67,3 +70,24 @@ Note: a key compiled into an app can be extracted from the APK, so use a key you
 flutter test test/roboflow_client_test.dart                                   # offline tests
 ROBOFLOW_API_KEY=your_key flutter test test/roboflow_client_test.dart         # + live smoke test
 ```
+
+## Running on iPhone (iOS)
+
+The same Flutter code runs on iOS; the iOS project is in `ios/` (open `ios/Runner.xcworkspace` in Xcode).
+Camera and photo-library permissions are already in `ios/Runner/Info.plist`.
+
+1. **Firebase login on iOS (one-time):** Firebase console → project `fruitective-v2` → Add app → **iOS**,
+   bundle ID `com.example.andriodfruitectivesv2` → download **GoogleService-Info.plist** → in Xcode, drag it into
+   `Runner/Runner` (tick "Copy items if needed" and the Runner target). Without it the app still runs, but only as Guest.
+2. **Signing (real iPhone only):** Xcode → Runner target → Signing & Capabilities → pick your Team.
+   If the bundle ID is taken, change it to something unique and use that same ID in step 1.
+3. **Run:**
+   ```
+   flutter pub get
+   flutter run -d ios --dart-define-from-file=roboflow.env.json
+   ```
+   To use Xcode's Run button instead, first run `flutter build ios --config-only --dart-define-from-file=roboflow.env.json`
+   so Xcode picks up the Roboflow key.
+
+The iOS **Simulator has no camera**: use "Choose from Gallery" there (drag a fruit photo onto the simulator to add it
+to Photos), or test "Take Photo" on a real iPhone.

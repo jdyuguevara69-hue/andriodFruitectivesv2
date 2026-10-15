@@ -1,6 +1,8 @@
 // Roboflow Workflow client for fruit freshness detection.
 //
-// Workflow: "Fruit Freshness vfruit-freshness-4f8dm-3-rfdetr-small-t1 Logic"
+// Workflow: "Fruit Freshness vfruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1--7893da Logic"
+//   wraps the inner workflow "fruit-freshness-4f8dm" with model
+//   fruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1--7893da (dataset v6, RF-DETR NAS, object detection).
 //   input : image (InferenceImage)
 //   output: predictions  -> { image: {width, height}, predictions: [ {class, confidence, x, y, width, height, ...} ] }
 //
@@ -16,7 +18,7 @@ const roboflowApiKey = String.fromEnvironment('ROBOFLOW_API_KEY');
 
 const _apiUrl = 'https://serverless.roboflow.com';
 const _workspace = 'jeffrey-daniel-yu-guevara-s-workspace';
-const _workflowId = 'fruit-freshness-vfruit-freshness-4f8dm-3-rfdetr-small-t1-logic';
+const _workflowId = 'fruit-freshness-vfruit-freshness-4f8dm-6-rfdetr-nas-pecoret-t1-7893da-logic';
 
 // ───────────── errors ─────────────
 sealed class RoboflowException implements Exception {
@@ -32,6 +34,11 @@ class RoboflowConfigException extends RoboflowException {
 
 class RoboflowAuthException extends RoboflowException {
   const RoboflowAuthException(super.message);
+}
+
+/// HTTP 402: the Roboflow workspace has used up its inference credits (or hit its credit cap).
+class RoboflowQuotaException extends RoboflowException {
+  const RoboflowQuotaException(super.message);
 }
 
 class RoboflowNetworkException extends RoboflowException {
@@ -133,6 +140,10 @@ class FruitFreshnessClient {
             .timeout(timeout);
         if (res.statusCode == 401 || res.statusCode == 403) {
           throw RoboflowAuthException('Roboflow rejected the API key (HTTP ${res.statusCode}).');
+        }
+        if (res.statusCode == 402) {
+          throw const RoboflowQuotaException(
+              'The Roboflow workspace is out of inference credits. Check billing / credit cap at app.roboflow.com/settings/plan.');
         }
         if (res.statusCode == 429 || res.statusCode >= 500) {
           last = RoboflowHttpException(res.statusCode, 'Roboflow is busy (HTTP ${res.statusCode}).');
