@@ -74,6 +74,7 @@ ROBOFLOW_API_KEY=your_key flutter test test/roboflow_client_test.dart         # 
 
 The same Flutter code runs on iOS; the iOS project is in `ios/` (open `ios/Runner.xcworkspace` in Xcode).
 Camera and photo-library permissions are already in `ios/Runner/Info.plist`.
+Requires iOS 16+ (needed by the on-device AI plugin `flutter_onnxruntime`); the AI runs offline on iPhone too.
 
 1. **Firebase login on iOS (one-time):** Firebase console → project `fruitective-v2` → Add app → **iOS**,
    bundle ID `com.example.andriodfruitectivesv2` → download **GoogleService-Info.plist** → in Xcode, drag it into
@@ -83,10 +84,9 @@ Camera and photo-library permissions are already in `ios/Runner/Info.plist`.
 3. **Run:**
    ```
    flutter pub get
-   flutter run -d ios --dart-define-from-file=roboflow.env.json
+   flutter run -d ios
    ```
-   To use Xcode's Run button instead, first run `flutter build ios --config-only --dart-define-from-file=roboflow.env.json`
-   so Xcode picks up the Roboflow key.
+   To use Xcode's Run button instead, first run `flutter build ios --config-only`.
 
 The iOS **Simulator has no camera**: use "Choose from Gallery" there (drag a fruit photo onto the simulator to add it
 to Photos), or test "Take Photo" on a real iPhone.
