@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'local_detector.dart';
 import 'roboflow_client.dart';
 
@@ -22,6 +23,7 @@ Future<void> main() async {
   } catch (e) {
     debugPrint('Firebase init failed: $e');
   }
+  await AppPrefs.load();
   runApp(const FruitectivesApp());
   LocalFruitDetector.instance.warmUp(); // load the on-device AI model in the background
 }
@@ -1096,8 +1098,8 @@ class SmartAnalysisCard extends StatelessWidget {
 
 class FeatureRow extends StatelessWidget {
   const FeatureRow({super.key});
-  Widget _item(BuildContext context, IconData icon, String title, String sub) => Expanded(child: InkWell(
-    onTap: () => go(context, const UploadPage()),
+  Widget _item(BuildContext context, IconData icon, String title, String sub, Widget page) => Expanded(child: InkWell(
+    onTap: () => go(context, page),
     borderRadius: BorderRadius.circular(14),
     child: Column(children: [
       Container(width: 52, height: 52,
@@ -1114,11 +1116,11 @@ class FeatureRow extends StatelessWidget {
     padding: const EdgeInsets.fromLTRB(6, 14, 6, 14),
     decoration: BoxDecoration(color: Colors.white.withOpacity(.75), borderRadius: BorderRadius.circular(18)),
     child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      _item(context, Icons.center_focus_strong_outlined, 'Identify Fruit', 'What fruit\nis this?'),
-      _item(context, Icons.contrast, 'Ripeness', 'Check ripeness\nstage'),
-      _item(context, Icons.verified_user_outlined, 'Freshness', 'Assess\nfreshness'),
-      _item(context, Icons.pest_control_outlined, 'Defect\nDetection', 'Find visible\ndefects'),
-      _item(context, Icons.edit_calendar_outlined, 'Shelf-life\nPrediction', 'Estimate shelf\nlife'),
+      _item(context, Icons.center_focus_strong_outlined, 'Identify Fruit', 'What fruit\nis this?', const UploadPage()),
+      _item(context, Icons.contrast, 'Ripeness', 'Check ripeness\nstage', const GuidePage(title: 'Ripeness Classification', kind: 0)),
+      _item(context, Icons.verified_user_outlined, 'Freshness', 'Assess\nfreshness', const GuidePage(title: 'Freshness Assessment Overview', kind: 1)),
+      _item(context, Icons.pest_control_outlined, 'Defect\nDetection', 'Find visible\ndefects', const GuidePage(title: 'Defect Detection', kind: 2)),
+      _item(context, Icons.edit_calendar_outlined, 'Shelf-life\nPrediction', 'Estimate shelf\nlife', const GuidePage(title: 'Shelf-life Prediction Overview', kind: 3)),
     ]),
   );
 }
@@ -1202,11 +1204,185 @@ class GuestHistoryCard extends StatelessWidget {
   );
 }
 
+// ───────────────────────── AI TOOL PAGE (matches Figma design) ─────────────────────────
+class _ToolInfo {
+  final String image, title, desc, tag;
+  final Color titleColor, tagBg, tagFg, tint;
+  final Widget page;
+  const _ToolInfo(this.image, this.title, this.desc, this.tag, this.titleColor, this.tagBg, this.tagFg, this.tint, this.page);
+}
+
+const _tools = [
+  _ToolInfo('tool_identify', 'Identify Fruit', 'Detect and identify the type of fruit instantly.', 'AI Vision',
+    Color(0xFF1F4D2B), Color(0xFFE6F2E2), Color(0xFF2E7D32), Color(0xFFEFF6EC), UploadPage()),
+  _ToolInfo('tool_ripeness', 'Ripeness', 'Check the ripeness stage of your fruit.', 'AI Classification',
+    Color(0xFFB4530F), Color(0xFFFDEBD8), Color(0xFFC2410C), Color(0xFFFDF3EA), GuidePage(title: 'Ripeness Classification', kind: 0)),
+  _ToolInfo('tool_freshness', 'Freshness', 'Assess freshness level with AI analysis.', 'AI Assessment',
+    Color(0xFF1B2B45), Color(0xFFE0EEFB), Color(0xFF1D6FB8), Color(0xFFEEF5FC), GuidePage(title: 'Freshness Assessment Overview', kind: 1)),
+  _ToolInfo('tool_defect', 'Defect Detection', 'Find visible defects or abnormalities.', 'AI Detection',
+    Color(0xFF111111), Color(0xFFFDE2E2), Color(0xFFDC2626), Color(0xFFFCF0F0), GuidePage(title: 'Defect Detection', kind: 2)),
+  _ToolInfo('tool_shelf', 'Shelf-life Prediction', 'Estimate how long your fruit will stay fresh.', 'AI Prediction',
+    Color(0xFF2E1A5E), Color(0xFFEDE4FB), Color(0xFF7C3AED), Color(0xFFF4EFFC), GuidePage(title: 'Shelf-life Prediction Overview', kind: 3)),
+  _ToolInfo('tool_nutrition', 'Nutrition & Calories', 'Get nutritional info and calorie estimates.', 'AI Nutrition',
+    Color(0xFF134E4A), Color(0xFFDDF3EF), Color(0xFF0F766E), Color(0xFFEDF8F6), NutritionPage()),
+];
+
+class _ToolCard extends StatelessWidget {
+  final _ToolInfo t;
+  const _ToolCard(this.t);
+  @override Widget build(BuildContext context) => Material(
+    color: Colors.transparent,
+    child: InkWell(
+      onTap: () => go(context, t.page),
+      borderRadius: BorderRadius.circular(14),
+      child: Ink(
+        padding: const EdgeInsets.fromLTRB(8, 10, 6, 10),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          gradient: LinearGradient(colors: [Colors.white.withOpacity(.85), t.tint]),
+          border: Border.all(color: const Color(0xFFE9E9E3)),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(.04), blurRadius: 10, offset: const Offset(0, 4))],
+        ),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
+          Container(
+            width: 58, height: 64,
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12),
+              boxShadow: [BoxShadow(color: Colors.black.withOpacity(.08), blurRadius: 8, offset: const Offset(0, 3))]),
+            clipBehavior: Clip.antiAlias,
+            child: Image.asset('assets/images/${t.image}.png', fit: BoxFit.cover),
+          ),
+          const SizedBox(width: 9),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(t.title, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: t.titleColor, height: 1.15)),
+            const SizedBox(height: 4),
+            Text(t.desc, style: const TextStyle(fontSize: 8.5, color: Color(0xFF555B55), height: 1.35)),
+            const SizedBox(height: 7),
+            Row(children: [
+              Flexible(child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                decoration: BoxDecoration(color: t.tagBg, borderRadius: BorderRadius.circular(8)),
+                child: Text(t.tag, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.w600, color: t.tagFg)),
+              )),
+              const Spacer(),
+              const Icon(Icons.chevron_right_rounded, size: 18, color: Colors.black87),
+            ]),
+          ])),
+        ]),
+      ),
+    ),
+  );
+}
+
+void _showHowItWorks(BuildContext context) => showModalBottomSheet(
+  context: context,
+  backgroundColor: Colors.white,
+  shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+  builder: (_) => SafeArea(child: Padding(
+    padding: const EdgeInsets.fromLTRB(22, 18, 22, 22),
+    child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Center(child: Container(width: 40, height: 4, decoration: BoxDecoration(color: Colors.black12, borderRadius: BorderRadius.circular(2)))),
+      const SizedBox(height: 16),
+      const Text('How Our AI Tools Work Together', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w900, color: Color(0xFF1F4D2B))),
+      const SizedBox(height: 12),
+      for (final s in const [
+        ('1. Capture', 'Take a clear photo of one fruit in good lighting, or choose one from your gallery.'),
+        ('2. Analyze', 'Our AI models identify the fruit and check its ripeness, freshness and visible defects.'),
+        ('3. Results', 'You get easy-to-read scores with an explanation of what the AI found.'),
+        ('4. Recommend', 'Fruitectives suggests how to store the fruit and when it is best to eat it.'),
+      ]) Padding(padding: const EdgeInsets.only(bottom: 10), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(s.$1, style: const TextStyle(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 2),
+        Text(s.$2, style: const TextStyle(color: muted, fontSize: 12, height: 1.4)),
+      ])),
+      const SizedBox(height: 6),
+      PrimaryButton(text: 'Start Scanning', icon: Icons.camera_alt_outlined, onTap: () { Navigator.pop(context); switchTab(context, 2); }),
+    ]),
+  )),
+);
+
+class _HowItWorksCard extends StatelessWidget {
+  const _HowItWorksCard();
+  Widget _step(IconData icon, String title, String sub) => Expanded(child: Column(children: [
+    Container(width: 38, height: 38,
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(.07), blurRadius: 6, offset: const Offset(0, 2))]),
+      child: Icon(icon, size: 21, color: const Color(0xFF2E7D32))),
+    const SizedBox(height: 6),
+    Text(title, textAlign: TextAlign.center, style: const TextStyle(fontSize: 8.5, fontWeight: FontWeight.w800, color: Colors.black)),
+    const SizedBox(height: 2),
+    Text(sub, textAlign: TextAlign.center, style: const TextStyle(fontSize: 7.5, color: muted, height: 1.3)),
+  ]));
+  Widget _arrow() => const Padding(padding: EdgeInsets.only(top: 12), child: Icon(Icons.arrow_forward, size: 12, color: Color(0xFF4CAF50)));
+
+  @override Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(12, 14, 12, 14),
+    decoration: BoxDecoration(color: Colors.white.withOpacity(.88), borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFFE6E8E1)),
+      boxShadow: [BoxShadow(color: Colors.black.withOpacity(.05), blurRadius: 14, offset: const Offset(0, 6))]),
+    child: Column(children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(width: 40, height: 40,
+          decoration: const BoxDecoration(shape: BoxShape.circle, gradient: LinearGradient(colors: [Color(0xFF4CAF50), Color(0xFF1B6B2A)])),
+          child: const Icon(Icons.auto_fix_high, color: Colors.white, size: 22)),
+        const SizedBox(width: 10),
+        const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('How Our AI Tools Work Together', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Color(0xFF1F4D2B))),
+          SizedBox(height: 4),
+          Text('We combine multiple AI models to deliver accurate, reliable, and explainable fruit analysis.',
+            style: TextStyle(fontSize: 8.5, color: Color(0xFF555B55), height: 1.35)),
+        ])),
+        const SizedBox(width: 6),
+        OutlinedButton(
+          onPressed: () => _showHowItWorks(context),
+          style: OutlinedButton.styleFrom(
+            padding: const EdgeInsets.symmetric(horizontal: 10), minimumSize: const Size(0, 30),
+            side: const BorderSide(color: Color(0xFFB9D3B4)), shape: const StadiumBorder(), backgroundColor: Colors.white),
+          child: const Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('Learn More', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF1F4D2B))),
+            SizedBox(width: 3),
+            Icon(Icons.chevron_right, size: 14, color: Color(0xFF1F4D2B)),
+          ]),
+        ),
+      ]),
+      const SizedBox(height: 14),
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _step(Icons.photo_camera_outlined, '1. Capture', 'Take a clear photo'), _arrow(),
+        _step(Icons.psychology_outlined, '2. Analyze', 'Multi-AI model processing'), _arrow(),
+        _step(Icons.bar_chart_rounded, '3. Results', 'Accurate & explainable output'), _arrow(),
+        _step(Icons.verified_user_outlined, '4. Recommend', 'Tips for storage & consumption'),
+      ]),
+    ]),
+  );
+}
+
 class ToolsPage extends StatelessWidget {
   const ToolsPage({super.key});
-  @override Widget build(BuildContext context)=>AppPage(tab:1,child:SingleChildScrollView(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
-    heading('AI TOOL',sub:'Explore the Fruitectives features'),const SizedBox(height:7),const Text('Powerful fruit insights, all in one place.',style:TextStyle(color:muted,fontSize:12)),const SizedBox(height:18),
-    _tool(context,'📸','Fruit Recognition','Identify a fruit from a photo',const UploadPage()),_tool(context,'🟢','Ripeness Classification','Explore ripeness stages',const GuidePage(title:'Ripeness Classification',kind:0)),_tool(context,'💧','Freshness Assessment','Review freshness indicators',const GuidePage(title:'Freshness Assessment Overview',kind:1)),_tool(context,'🔎','Defect Detection','Common visible fruit defects',const GuidePage(title:'Defect Detection',kind:2)),_tool(context,'📅','Shelf-life Prediction','Storage guidance and shelf life',const GuidePage(title:'Shelf-life Prediction Overview',kind:3)),_tool(context,'🥗','Nutrition and Calories','Explore nutrition information',const NutritionPage()),const SizedBox(height:12),panel(const Text('Note: Fruit Recognition uses AI. The other tool pages are general reference guides.',style:TextStyle(color:muted,fontSize:11))),
+  @override Widget build(BuildContext context) => AppPage(tab: 1, child: SingleChildScrollView(child: Stack(clipBehavior: Clip.none, children: [
+    // decorations (behind the content)
+    Positioned(top: 0, left: 0, child: Image.asset('assets/images/decor_apple.png', width: 52)),
+    Positioned(top: 40, right: 0, child: Image.asset('assets/images/leaf_right.png', width: 78)),
+    Positioned(top: 150, left: 0, child: Image.asset('assets/images/leaf_left.png', width: 44)),
+    Positioned(bottom: 120, right: 0, child: Image.asset('assets/images/decor_kiwi.png', width: 110)),
+    Padding(
+      padding: const EdgeInsets.fromLTRB(16, 70, 16, 24),
+      child: Column(children: [
+        const Text('AI TOOL', style: TextStyle(fontSize: 46, fontWeight: FontWeight.w900, color: Color(0xFF4A2511), height: 1)),
+        const SizedBox(height: 18),
+        const Text('Powerful AI features to analyze\nevery detail of your fruit.', textAlign: TextAlign.center,
+          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF6B6F6A), height: 1.45)),
+        const SizedBox(height: 30),
+        for (var i = 0; i < _tools.length; i += 2) Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            Expanded(child: _ToolCard(_tools[i])),
+            const SizedBox(width: 10),
+            Expanded(child: _ToolCard(_tools[i + 1])),
+          ])),
+        ),
+        const SizedBox(height: 60),
+        const _HowItWorksCard(),
+      ]),
+    ),
   ])));
 }
 Widget _tool(BuildContext c,String e,String t,String d,Widget p)=>Padding(padding:const EdgeInsets.only(bottom:10),child:InkWell(onTap:()=>go(c,p),child:panel(Row(children:[Container(width:48,height:48,decoration:BoxDecoration(color:const Color(0xFFEAF3E4),borderRadius:BorderRadius.circular(14)),child:Center(child:Text(e,style:const TextStyle(fontSize:25)))),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(t,style:const TextStyle(fontWeight:FontWeight.w800)),const SizedBox(height:4),Text(d,style:const TextStyle(color:muted,fontSize:11))])),const Icon(Icons.chevron_right,color:green)]))));
@@ -1237,11 +1413,6 @@ class NutritionPage extends StatelessWidget {
   @override Widget build(BuildContext context)=>AppPage(tab:1,child:SingleChildScrollView(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[heading('Nutrition and Calories',sub:'Example nutrition profile'),const SizedBox(height:15),panel(Column(children:[const Text('🥭',style:TextStyle(fontSize:72)),const Text('Mango',style:TextStyle(fontWeight:FontWeight.w900,fontSize:22)),const Text('Per 100 g • illustrative values',style:TextStyle(color:muted,fontSize:11)),const SizedBox(height:14),Container(padding:const EdgeInsets.all(15),decoration:BoxDecoration(color:const Color(0xFFEAF3E4),borderRadius:BorderRadius.circular(15)),child:const Column(children:[Text('60',style:TextStyle(fontSize:32,fontWeight:FontWeight.w900,color:green)),Text('Calories (kcal)',style:TextStyle(color:muted))]))])),const SizedBox(height:14),GridView.count(shrinkWrap:true,physics:const NeverScrollableScrollPhysics(),crossAxisCount:2,childAspectRatio:1.7,crossAxisSpacing:10,mainAxisSpacing:10,children:[_nut('Carbohydrates','15 g'),_nut('Dietary fiber','1.6 g'),_nut('Protein','0.8 g'),_nut('Fat','0.4 g'),_nut('Vitamin C','36 mg'),_nut('Natural sugars','13.7 g')]),const SizedBox(height:12),panel(const Text('Nutrition varies with variety and serving size. Values shown are for demonstration only.',style:TextStyle(color:muted,fontSize:11)))])));
 }
 Widget _nut(String a,String b)=>Container(padding:const EdgeInsets.all(14),decoration:BoxDecoration(color:Colors.white,borderRadius:BorderRadius.circular(15)),child:Column(crossAxisAlignment:CrossAxisAlignment.start,mainAxisAlignment:MainAxisAlignment.center,children:[Text(b,style:const TextStyle(fontSize:19,fontWeight:FontWeight.w900,color:green)),Text(a,style:const TextStyle(fontSize:11,color:muted))]));
-class ProfilePage extends StatelessWidget {
-  const ProfilePage({super.key});
-  @override Widget build(BuildContext context)=>AppPage(tab:4,child:SingleChildScrollView(padding:const EdgeInsets.all(18),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[heading('Profile'),const SizedBox(height:16),panel(Row(children:[const CircleAvatar(radius:30,backgroundColor:Color(0xFFE5F0DE),child:Icon(Icons.person,size:34,color:green)),const SizedBox(width:12),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(currentUser?.displayName ?? (currentUser==null?'Guest':'Fruitectives User'),style:const TextStyle(fontWeight:FontWeight.w900,fontSize:16)),Text(currentUser==null?'Guest mode':'Signed in',style:const TextStyle(color:green,fontSize:11)),Text(currentUser?.email ?? 'Not signed in',style:const TextStyle(color:muted,fontSize:11))])),const Icon(Icons.edit_outlined,color:green)])),const SizedBox(height:20),const Text('ACCOUNT',style:TextStyle(color:muted,fontSize:11,fontWeight:FontWeight.w900)),const SizedBox(height:8),_setting(context,Icons.person_outline,'Personal Information'),_setting(context,Icons.lock_outline,'App Settings'),_setting(context,Icons.language,'Language'),_setting(context,Icons.notifications_none,'Notifications'),const SizedBox(height:12),const Text('SUPPORT',style:TextStyle(color:muted,fontSize:11,fontWeight:FontWeight.w900)),const SizedBox(height:8),_setting(context,Icons.help_outline,'Help Center'),_setting(context,Icons.feedback_outlined,'Feedback'),_setting(context,Icons.info_outline,'About Fruitectives 2.0'),const SizedBox(height:20),OutlineButtonX(text:'Log Out',icon:Icons.logout,onTap:() async {if(firebaseReady) await FirebaseAuth.instance.signOut(); if(context.mounted) Navigator.pushAndRemoveUntil(context,MaterialPageRoute(builder:(_)=>const LoginPage()),(_)=>false);}),const SizedBox(height:15),const Center(child:Text('FRUITECTIVES 2.0 • UI DEMO',style:TextStyle(color:muted,fontSize:10,letterSpacing:1)))])));
-}
-Widget _setting(BuildContext c,IconData i,String t)=>Padding(padding:const EdgeInsets.only(bottom:8),child:InkWell(onTap:()=>ScaffoldMessenger.of(c).showSnackBar(SnackBar(content:Text('$t is a demo setting.'))),child:panel(Row(children:[Icon(i,color:green,size:21),const SizedBox(width:12),Expanded(child:Text(t,style:const TextStyle(fontWeight:FontWeight.w600,fontSize:13))),const Icon(Icons.chevron_right,color:muted)]))));
 Widget _score(String t,String n)=>Container(padding:const EdgeInsets.all(13),decoration:BoxDecoration(color:const Color(0xFFEAF3E4),borderRadius:BorderRadius.circular(14)),child:Column(children:[Text(n,style:const TextStyle(fontSize:23,color:green,fontWeight:FontWeight.w900)),Text(t,style:const TextStyle(fontSize:11,color:muted))]));
 
 // ───────────────────────── SCANS: per-user storage + stats (saved on the phone) ─────────────────────────
@@ -1355,7 +1526,8 @@ class ScanStore {
     } catch (e) { debugPrint('Could not save scans: $e'); }
   }
 
-  Future<void> add(Scan s) async { if (_uid == null) return; scans.value = [s, ...scans.value]; await _persist(); }
+  Future<void> add(Scan s) async { if (_uid == null || !AppPrefs.saveHistory) return; scans.value = [s, ...scans.value]; await _persist(); }
+  Future<void> clear() async { scans.value = []; await _persist(); }
   Future<void> toggleSaved(Scan s) async { s.saved = !s.saved; scans.value = [...scans.value]; await _persist(); }
 
   int get total => scans.value.length;
@@ -1422,6 +1594,7 @@ Future<void> scanFruit(BuildContext context, ImageSource source) async {
     return;
   }
   final scan = scanFromDetection(best);
+  if (AppPrefs.haptics) HapticFeedback.mediumImpact();
   await ScanStore.I.add(scan);
   if (!context.mounted) return;
   go(context, ResultPage(scan: scan, photo: bytes, result: result));
@@ -1537,68 +1710,331 @@ class UploadPage extends StatelessWidget {
 // ───────────────────────── RESULT PAGES ─────────────────────────
 final _demoScan = Scan(id: 'demo', emoji: '🥭', fruit: 'Mango', scientific: 'Mangifera indica', ripeness: 85, freshness: 87, time: DateTime(2026));
 
+// ───────────────────────── RESULT OVERVIEW (matches Figma design) ─────────────────────────
+// Approximate nutrition per 100 g (USDA FoodData Central values, rounded).
+class _Nutri {
+  final int kcal; final double carbs, fiber, protein, fat; final List<String> vitamins;
+  const _Nutri(this.kcal, this.carbs, this.fiber, this.protein, this.fat, this.vitamins);
+}
+const _nutrition = <String, _Nutri>{
+  'Apple': _Nutri(52, 13.8, 2.4, 0.3, 0.2, ['Vitamin C', 'Vitamin K', 'Potassium']),
+  'Banana': _Nutri(89, 22.8, 2.6, 1.1, 0.3, ['Vitamin B6', 'Vitamin C', 'Potassium', 'Magnesium']),
+  'Mango': _Nutri(60, 15.0, 1.6, 0.8, 0.4, ['Vitamin C', 'Vitamin A', 'Potassium', 'Folate (B9)']),
+  'Orange': _Nutri(47, 11.8, 2.4, 0.9, 0.1, ['Vitamin C', 'Folate (B9)', 'Potassium', 'Thiamine (B1)']),
+  'Pear': _Nutri(57, 15.2, 3.1, 0.4, 0.1, ['Vitamin C', 'Vitamin K', 'Potassium', 'Copper']),
+  'Peach': _Nutri(39, 9.5, 1.5, 0.9, 0.3, ['Vitamin C', 'Vitamin A', 'Potassium', 'Niacin (B3)']),
+  'Grapes': _Nutri(69, 18.1, 0.9, 0.7, 0.2, ['Vitamin C', 'Vitamin K', 'Potassium', 'Copper']),
+  'Avocado': _Nutri(160, 8.5, 6.7, 2.0, 14.7, ['Vitamin K', 'Folate (B9)', 'Vitamin E', 'Potassium']),
+  'Watermelon': _Nutri(30, 7.6, 0.4, 0.6, 0.2, ['Vitamin C', 'Vitamin A', 'Potassium', 'Magnesium']),
+};
+const _vitaminDot = [Color(0xFFF59E0B), Color(0xFF22A33A), Color(0xFF3B82F6), Color(0xFFEC4899)];
+const _vitaminBg = [Color(0xFFFEF6E4), Color(0xFFE8F5E9), Color(0xFFE6F0FD), Color(0xFFFCE7F3)];
+const _vitaminFg = [Color(0xFFB45309), Color(0xFF1B6B2A), Color(0xFF1D4ED8), Color(0xFFBE185D)];
+
+extension _ResultText on Scan {
+  String get stageText {
+    if (isRotten) return 'Spoilage detected. This fruit is not safe to eat.';
+    switch (ripenessLabel) {
+      case 'Unripe': return 'The fruit is not yet ripe. Let it ripen at room temperature for a few days.';
+      case 'Half ripe': return 'The fruit is almost ripe and will be ready to eat in 1–2 days.';
+      case 'Overripe': return 'The fruit is overripe. Eat it today or use it for smoothies or baking.';
+      default: return 'The fruit is in ripe stage, ready for consumption.';
+    }
+  }
+  String get storage {
+    if (isRotten) return 'Discard';
+    if (ripenessLabel == 'Unripe' || ripenessLabel == 'Half ripe') return 'Room Temperature';
+    if (ripenessLabel == 'Overripe') return 'Refrigerate';
+    return freshness >= 85 ? 'Room Temperature' : 'Refrigerate';
+  }
+  String get defectsText => defects == 'None' ? 'None Detected' : defects;
+  (Color, Color) get stageColors {
+    if (isRotten) return (const Color(0xFFFDE2E2), const Color(0xFFB91C1C));
+    switch (ripenessLabel) {
+      case 'Unripe': return (const Color(0xFFE3F4DC), const Color(0xFF2E7D32));
+      case 'Half ripe': return (const Color(0xFFF3F7D9), const Color(0xFF6B7F12));
+      case 'Overripe': return (const Color(0xFFF6E7DA), const Color(0xFF8A4B14));
+      default: return (const Color(0xFFE6F5DF), const Color(0xFF14361C));
+    }
+  }
+}
+
 class ResultPage extends StatelessWidget {
   final Scan? scan;
   final Uint8List? photo; // the photo just analyzed (not stored in history)
   final FreshnessResult? result;
   const ResultPage({super.key, this.scan, this.photo, this.result});
+
+  static const _ink = Color(0xFF14361C);
+
+  Widget _box({required Widget child, EdgeInsets padding = const EdgeInsets.all(12), Color color = Colors.white}) => Container(
+    width: double.infinity, padding: padding,
+    decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE8EBE4)),
+      boxShadow: [BoxShadow(color: Colors.black.withOpacity(.03), blurRadius: 8, offset: const Offset(0, 3))]),
+    child: child);
+
+  // Photo (or emoji) on the left of the main card. Tap a real photo to see the AI's detection boxes.
+  Widget _picture(BuildContext context, Scan s) {
+    final r = result;
+    final hasPhoto = photo != null && r != null && r.imageWidth > 0 && r.imageHeight > 0;
+    final pic = ClipRRect(
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        height: 150,
+        decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFFEAF4E4), Color(0xFFFFF4E0)])),
+        child: hasPhoto
+          ? Stack(fit: StackFit.expand, children: [
+              Image.memory(photo!, fit: BoxFit.cover),
+              Positioned(left: 6, bottom: 6, child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                decoration: BoxDecoration(color: Colors.black.withOpacity(.55), borderRadius: BorderRadius.circular(8)),
+                child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.center_focus_strong, size: 11, color: Colors.white), SizedBox(width: 3),
+                  Text('Tap to view', style: TextStyle(fontSize: 8.5, color: Colors.white, fontWeight: FontWeight.w600)),
+                ]))),
+            ])
+          : Center(child: Text(s.emoji, style: const TextStyle(fontSize: 72))),
+      ),
+    );
+    if (!hasPhoto) return pic;
+    return GestureDetector(
+      onTap: () => showDialog(context: context, builder: (d) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+        child: Padding(padding: const EdgeInsets.all(12), child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('AI Detection', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
+          const SizedBox(height: 10),
+          ConstrainedBox(constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * .6), child: AspectRatio(
+            aspectRatio: r!.imageWidth / r.imageHeight,
+            child: ClipRRect(borderRadius: BorderRadius.circular(12), child: Stack(fit: StackFit.expand, children: [
+              Image.memory(photo!, fit: BoxFit.fill),
+              CustomPaint(painter: _DetectionPainter(r!)),
+            ])))),
+          TextButton(onPressed: () => Navigator.pop(d), child: const Text('Close', style: TextStyle(color: green, fontWeight: FontWeight.w800))),
+        ])),
+      )),
+      child: pic,
+    );
+  }
+
+  Widget _metric(IconData icon, Color iconBg, String title, String value, Color pillBg, Color pillFg, Color tint) => Expanded(child: Container(
+    padding: const EdgeInsets.fromLTRB(4, 10, 4, 10),
+    decoration: BoxDecoration(color: tint, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE8EBE4))),
+    child: Column(children: [
+      Container(width: 34, height: 34, decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle), child: Icon(icon, color: Colors.white, size: 18)),
+      const SizedBox(height: 6),
+      SizedBox(height: 26, child: Center(child: Text(title, textAlign: TextAlign.center, maxLines: 2,
+        style: const TextStyle(fontSize: 8.5, color: Color(0xFF333333), height: 1.2)))),
+      const SizedBox(height: 6),
+      Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+        decoration: BoxDecoration(color: pillBg, borderRadius: BorderRadius.circular(10)),
+        child: Text(value, textAlign: TextAlign.center, maxLines: 2,
+          style: TextStyle(fontSize: 8.5, fontWeight: FontWeight.w700, color: pillFg)),
+      ),
+    ]),
+  ));
+
+  Widget _nutrient(String emoji, String name, String value) => Expanded(child: Column(children: [
+    Text(emoji, style: const TextStyle(fontSize: 17)),
+    const SizedBox(height: 6),
+    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 8, color: Color(0xFF333333))),
+    const SizedBox(height: 4),
+    Text(value, style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.black)),
+  ]));
+  Widget _vline() => Container(width: 1, height: 58, color: const Color(0xFFE6E8E1));
+
+  Widget _nutritionCard(BuildContext context, Scan s) {
+    final n = _nutrition[s.fruit];
+    return _box(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Container(width: 30, height: 30, decoration: const BoxDecoration(color: Color(0xFF1F6B2A), shape: BoxShape.circle),
+          child: const Icon(Icons.restaurant_menu_rounded, color: Colors.white, size: 16)),
+        const SizedBox(width: 8),
+        const Expanded(child: Text('Nutrition and Calories Overview', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink))),
+        GestureDetector(onTap: () => go(context, const NutritionPage()), child: const Row(children: [
+          Text('View Details', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600, color: _ink)),
+          Icon(Icons.chevron_right, size: 15, color: _ink),
+        ])),
+      ]),
+      const SizedBox(height: 12),
+      if (n == null)
+        const Text('Nutrition data is shown once the fruit type is identified. Try scanning again with the whole fruit in view.',
+          style: TextStyle(fontSize: 10.5, color: muted, height: 1.4))
+      else ...[
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Container(
+            width: 84, padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(color: const Color(0xFFFDF0DC), borderRadius: BorderRadius.circular(12)),
+            child: Column(children: [
+              const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text('🔥', style: TextStyle(fontSize: 13)), SizedBox(width: 3),
+                Text('Calories', style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w600)),
+              ]),
+              const SizedBox(height: 6),
+              Text.rich(TextSpan(children: [
+                TextSpan(text: '${n.kcal}', style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: Colors.black)),
+                const TextSpan(text: ' kcal', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.black)),
+              ])),
+              const Text('per 100 g', style: TextStyle(fontSize: 8, color: muted)),
+            ]),
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE8EBE4))),
+            child: Row(children: [
+              _nutrient('🍃', 'Carbohydrates', '${n.carbs.toStringAsFixed(1)} g'), _vline(),
+              _nutrient('🌾', 'Fiber', '${n.fiber.toStringAsFixed(1)} g'), _vline(),
+              _nutrient('💧', 'Protein', '${n.protein.toStringAsFixed(1)} g'), _vline(),
+              _nutrient('🫒', 'Fat', '${n.fat.toStringAsFixed(1)} g'),
+            ]),
+          )),
+        ]),
+        const SizedBox(height: 12),
+        const Text('Key Vitamins & Minerals:', style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: _ink)),
+        const SizedBox(height: 7),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          for (var i = 0; i < n.vitamins.length; i++) Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+            decoration: BoxDecoration(color: _vitaminBg[i % 4], borderRadius: BorderRadius.circular(14)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              CircleAvatar(radius: 3.5, backgroundColor: _vitaminDot[i % 4]), const SizedBox(width: 5),
+              Text(n.vitamins[i], style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600, color: _vitaminFg[i % 4])),
+            ]),
+          ),
+        ]),
+        const SizedBox(height: 6),
+        const Text('Values are approximate, per 100 g of fresh fruit.', style: TextStyle(fontSize: 8, color: muted)),
+      ],
+    ]));
+  }
+
   @override Widget build(BuildContext context) {
     final s = scan ?? _demoScan;
-    final r = result;
-    return AppPage(tab: 2, child: SingleChildScrollView(padding: const EdgeInsets.all(18), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      heading('Result Overview', sub: s.isDemo ? 'Demo result (simulated)' : s.whenText),
-      const SizedBox(height: 14),
-      panel(Column(children: [
-        if (photo != null && r != null && r.imageWidth > 0 && r.imageHeight > 0)
-          ConstrainedBox(constraints: const BoxConstraints(maxHeight: 280), child: AspectRatio(
-            aspectRatio: r.imageWidth / r.imageHeight,
-            child: ClipRRect(borderRadius: BorderRadius.circular(14), child: Stack(fit: StackFit.expand, children: [
-              Image.memory(photo!, fit: BoxFit.fill),
-              CustomPaint(painter: _DetectionPainter(r)),
-            ]))))
-        else
-          Text(s.emoji, style: const TextStyle(fontSize: 80)),
-        if (photo != null) const SizedBox(height: 10),
-        Text(s.fruit, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w900)),
-        Text(s.scientific, style: const TextStyle(color: muted, fontSize: 12, fontStyle: FontStyle.italic)),
-        if (s.label != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(
-          'Detected: ${s.label}${s.confidence != null ? ' • ${(s.confidence! * 100).round()}% confidence' : ''}',
-          style: const TextStyle(color: muted, fontSize: 11.5, fontWeight: FontWeight.w600))),
-        const SizedBox(height: 10),
-        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(s.isRotten ? Icons.warning_amber_rounded : Icons.check_circle, color: s.isRotten ? const Color(0xFFC2410C) : green), const SizedBox(width: 6),
-          Text(s.isRotten ? 'Spoilage Detected' : 'Analysis Complete',
-            style: TextStyle(color: s.isRotten ? const Color(0xFFC2410C) : green, fontWeight: FontWeight.w800))]),
-        const SizedBox(height: 15),
-        Row(children: [Expanded(child: _score('Ripeness', '${s.ripeness}%')), const SizedBox(width: 10), Expanded(child: _score('Freshness', '${s.freshness}%'))]),
+    final (stageBg, stageFg) = s.stageColors;
+    final rotten = s.isRotten;
+    return AppPage(tab: 2, child: SingleChildScrollView(child: Stack(clipBehavior: Clip.none, children: [
+      Positioned(top: 30, right: 0, child: Image.asset('assets/images/leaf_right.png', width: 70)),
+      Positioned(top: 330, left: 0, child: Image.asset('assets/images/leaf_left.png', width: 34)),
+      Padding(padding: const EdgeInsets.fromLTRB(14, 22, 14, 24), child: Column(children: [
+        const Text('Result Overview', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: Color(0xFF4A2511))),
+        if (s.isDemo) const Padding(padding: EdgeInsets.only(top: 4), child: Text('Demo result (simulated)', style: TextStyle(fontSize: 11, color: muted)))
+        else Padding(padding: const EdgeInsets.only(top: 4), child: Text(s.whenText, style: const TextStyle(fontSize: 11, color: muted))),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(color: Colors.white.withOpacity(.9), borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFFE8EBE4)),
+            boxShadow: [BoxShadow(color: Colors.black.withOpacity(.05), blurRadius: 18, offset: const Offset(0, 8))]),
+          child: Column(children: [
+            // 1) status banner
+            _box(
+              color: rotten ? const Color(0xFFFFEDE3) : const Color(0xFFE6F4E0),
+              padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+              child: Row(children: [
+                CircleAvatar(radius: 21, backgroundColor: rotten ? const Color(0xFFC2410C) : const Color(0xFF1F6B2A),
+                  child: Icon(rotten ? Icons.priority_high_rounded : Icons.check_rounded, color: Colors.white, size: 24)),
+                const SizedBox(width: 14),
+                Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(rotten ? 'Spoilage Detected' : 'Analysis Complete!', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800,
+                    color: rotten ? const Color(0xFF9A3412) : _ink)),
+                  const SizedBox(height: 2),
+                  Text(rotten ? 'Please check the details below before eating.' : 'Here is the result of your fruit scan.',
+                    style: const TextStyle(fontSize: 11, color: Color(0xFF3F4A42))),
+                ])),
+              ]),
+            ),
+            const SizedBox(height: 10),
+            // 2) fruit card
+            _box(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Expanded(flex: 10, child: _picture(context, s)),
+              const SizedBox(width: 12),
+              Expanded(flex: 12, child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(child: Text(s.fruit, style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: _ink, height: 1.1))),
+                  if (s.confidence != null) Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(color: const Color(0xFFF1F7EE), borderRadius: BorderRadius.circular(10), border: Border.all(color: const Color(0xFFDDE8D7))),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.verified_user, size: 14, color: Color(0xFF1F6B2A)), const SizedBox(width: 3),
+                      Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Text('Confidence', style: TextStyle(fontSize: 6.5, color: muted)),
+                        Text('${(s.confidence! * 100).round()}%', style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900, color: _ink, height: 1.1)),
+                      ]),
+                    ]),
+                  ),
+                ]),
+                const SizedBox(height: 3),
+                Text(s.scientific, style: const TextStyle(fontSize: 10.5, fontStyle: FontStyle.italic, color: Color(0xFF3F4A42))),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(color: stageBg, borderRadius: BorderRadius.circular(20), border: Border.all(color: stageFg.withOpacity(.15))),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text(rotten ? '⚠️' : s.emoji, style: const TextStyle(fontSize: 14)), const SizedBox(width: 6),
+                    Text(rotten ? 'Rotten' : s.ripenessLabel, style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: stageFg)),
+                  ]),
+                ),
+                const SizedBox(height: 10),
+                Text(s.stageText, style: const TextStyle(fontSize: 11, color: Color(0xFF2A2F2B), height: 1.4)),
+                if (s.label != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text('AI label: ${s.label}',
+                  style: const TextStyle(fontSize: 8.5, color: muted))),
+              ])),
+            ])),
+            const SizedBox(height: 10),
+            // 3) four metrics
+            _box(padding: const EdgeInsets.all(8), child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              _metric(Icons.eco_outlined, const Color(0xFF3FA34D), 'Freshness', s.freshnessLabel,
+                rotten ? const Color(0xFFFDE2E2) : const Color(0xFFDFF2D8), rotten ? const Color(0xFFB91C1C) : const Color(0xFF1B6B2A), const Color(0xFFF5FAF2)),
+              const SizedBox(width: 6),
+              _metric(Icons.shield_outlined, const Color(0xFF2E8B3E), 'Defects', s.defectsText,
+                s.defects == 'None' ? const Color(0xFFDFF2D8) : const Color(0xFFFDEBD8), s.defects == 'None' ? const Color(0xFF1B6B2A) : const Color(0xFFC2410C), const Color(0xFFF5FAF2)),
+              const SizedBox(width: 6),
+              _metric(Icons.calendar_month_outlined, const Color(0xFF8B5CF6), 'Estimated Shelf-life', s.shelfLife,
+                const Color(0xFFEDE4FB), const Color(0xFF6D28D9), const Color(0xFFF7F3FD)),
+              const SizedBox(width: 6),
+              _metric(Icons.inventory_2_outlined, const Color(0xFF3B82F6), 'Storage Recommendation', s.storage,
+                const Color(0xFFE0EEFB), const Color(0xFF1D4ED8), const Color(0xFFF1F6FD)),
+            ])),
+            const SizedBox(height: 10),
+            // 4) recommendation
+            _box(child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(width: 30, height: 30, decoration: const BoxDecoration(color: Color(0xFFFFF4D6), shape: BoxShape.circle),
+                child: const Icon(Icons.lightbulb_outline_rounded, size: 17, color: Color(0xFFB45309))),
+              const SizedBox(width: 10),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Text('Recommendation', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: _ink)),
+                const SizedBox(height: 3),
+                Text(s.recommendation, style: const TextStyle(fontSize: 10.5, color: Color(0xFF3F4A42), height: 1.45)),
+              ])),
+            ])),
+            const SizedBox(height: 10),
+            // 5) nutrition
+            _nutritionCard(context, s),
+          ]),
+        ),
+        const SizedBox(height: 16),
+        // actions
+        ValueListenableBuilder<List<Scan>>(valueListenable: ScanStore.I.scans, builder: (context, _, __) => PrimaryButton(
+          text: s.saved ? 'Saved ✓  (tap to remove)' : 'Save Result',
+          icon: s.saved ? Icons.bookmark : Icons.bookmark_border,
+          onTap: () {
+            if (s.isDemo) { toast(context, 'Demo results can\'t be saved. Scan a real fruit to save it.'); return; }
+            if (currentUser == null) { toast(context, 'Log in to save results to your account.'); return; }
+            ScanStore.I.toggleSaved(s);
+          },
+        )),
+        const SizedBox(height: 9),
+        Row(children: [
+          Expanded(child: OutlineButtonX(text: 'Ripeness', icon: Icons.timelapse, onTap: () => go(context, DetailResultPage(kind: 0, scan: s)))),
+          const SizedBox(width: 9),
+          Expanded(child: OutlineButtonX(text: 'Freshness', icon: Icons.eco_outlined, onTap: () => go(context, DetailResultPage(kind: 1, scan: s)))),
+        ]),
+        const SizedBox(height: 9),
+        OutlineButtonX(text: 'Scan Another Fruit', icon: Icons.camera_alt_outlined, onTap: () => switchTab(context, 2)),
       ])),
-      const SizedBox(height: 14),
-      const Text('Quick Insights', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-      const SizedBox(height: 10),
-      GridView.count(shrinkWrap: true, physics: const NeverScrollableScrollPhysics(), crossAxisCount: 2, crossAxisSpacing: 10, mainAxisSpacing: 10, childAspectRatio: 1.7,
-        children: [_nut('Quality', s.quality), _nut('Shelf life', s.shelfLife), _nut('Ripeness', s.ripenessLabel), _nut('Defects', s.defects)]),
-      const SizedBox(height: 14),
-      panel(Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Text('Recommendation', style: TextStyle(fontWeight: FontWeight.w900)), const SizedBox(height: 7),
-        Text(s.recommendation, style: const TextStyle(color: muted, fontSize: 12, height: 1.5)),
-      ])),
-      const SizedBox(height: 14),
-      // Save / unsave (logged-in users only)
-      ValueListenableBuilder<List<Scan>>(valueListenable: ScanStore.I.scans, builder: (context, _, __) => PrimaryButton(
-        text: s.saved ? 'Saved ✓  (tap to remove)' : 'Save Result',
-        icon: s.saved ? Icons.bookmark : Icons.bookmark_border,
-        onTap: () {
-          if (s.isDemo) { toast(context, 'Demo results can\'t be saved. Scan a real fruit to save it.'); return; }
-          if (currentUser == null) { toast(context, 'Log in to save results to your account.'); return; }
-          ScanStore.I.toggleSaved(s);
-        },
-      )),
-      const SizedBox(height: 9),
-      OutlineButtonX(text: 'View Ripeness Result', onTap: () => go(context, DetailResultPage(kind: 0, scan: s))),
-      const SizedBox(height: 9),
-      OutlineButtonX(text: 'View Freshness Result', onTap: () => go(context, DetailResultPage(kind: 1, scan: s))),
-      const SizedBox(height: 9),
-      OutlineButtonX(text: 'Nutrition Information', onTap: () => go(context, const NutritionPage())),
     ])));
   }
 }
@@ -1762,4 +2198,617 @@ class FruitNavBar extends StatelessWidget {
       ]),
     );
   }
+}
+
+// ───────────────────────── PROFILE + SETTINGS PAGES ─────────────────────────
+// Change this to the email address that should receive user feedback.
+const kSupportEmail = 'paulbryan818@gmail.com';
+const kAppVersion = '1.0.0';
+
+/// Simple settings saved on the phone.
+class AppPrefs {
+  static SharedPreferences? _p;
+  static Future<void> load() async { try { _p = await SharedPreferences.getInstance(); } catch (e) { debugPrint('Prefs: $e'); } }
+  static bool getBool(String k, {bool def = true}) => _p?.getBool(k) ?? def;
+  static Future<void> setBool(String k, bool v) async { await _p?.setBool(k, v); }
+  static String getString(String k, {String def = ''}) => _p?.getString(k) ?? def;
+  static Future<void> setString(String k, String v) async { await _p?.setString(k, v); }
+
+  static bool get saveHistory => getBool('set_save_history');
+  static bool get haptics => getBool('set_haptics');
+}
+
+const _profInk = Color(0xFF14361C);
+
+String initials(String name) {
+  final parts = name.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+  if (parts.isEmpty) return '?';
+  return (parts.first[0] + (parts.length > 1 ? parts.last[0] : '')).toUpperCase();
+}
+String fullName() {
+  final u = currentUser;
+  if (u == null) return 'Guest';
+  final n = (u.displayName ?? '').trim();
+  return n.isNotEmpty ? n : firstName();
+}
+String niceDate(DateTime? d) {
+  if (d == null) return '—';
+  const m = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return '${m[d.month - 1]} ${d.day}, ${d.year}';
+}
+
+// ---------- shared building blocks ----------
+/// Page with a back button + title, used by every profile sub-page.
+class SubPage extends StatelessWidget {
+  final String title; final String? subtitle; final List<Widget> children;
+  const SubPage({super.key, required this.title, this.subtitle, required this.children});
+  @override Widget build(BuildContext context) => AppPage(tab: 4, child: SingleChildScrollView(
+    padding: const EdgeInsets.fromLTRB(16, 12, 16, 28),
+    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Material(color: Colors.white, shape: const CircleBorder(), elevation: 0,
+          child: InkWell(customBorder: const CircleBorder(), onTap: () => Navigator.maybePop(context),
+            child: const Padding(padding: EdgeInsets.all(9), child: Icon(Icons.arrow_back_rounded, color: _profInk, size: 22)))),
+        const SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900, color: _profInk)),
+          if (subtitle != null) Text(subtitle!, style: const TextStyle(fontSize: 11.5, color: muted)),
+        ])),
+      ]),
+      const SizedBox(height: 18),
+      ...children,
+    ]),
+  ));
+}
+
+Widget sectionLabel(String t) => Padding(padding: const EdgeInsets.fromLTRB(4, 6, 0, 8),
+  child: Text(t, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, letterSpacing: 1, color: muted)));
+
+/// White rounded group with thin dividers between rows.
+Widget groupCard(List<Widget> rows) => Container(
+  margin: const EdgeInsets.only(bottom: 16),
+  decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18),
+    border: Border.all(color: const Color(0xFFEDEFE8)),
+    boxShadow: [BoxShadow(color: Colors.black.withOpacity(.03), blurRadius: 10, offset: const Offset(0, 4))]),
+  child: Column(children: [
+    for (var i = 0; i < rows.length; i++) ...[
+      rows[i],
+      if (i < rows.length - 1) const Divider(height: 1, indent: 62, color: Color(0xFFF0F1EC)),
+    ],
+  ]),
+);
+
+Widget iconBadge(IconData icon, Color color) => Container(width: 36, height: 36,
+  decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(11)),
+  child: Icon(icon, color: color, size: 19));
+
+Widget menuRow(IconData icon, Color color, String title, {String? subtitle, Widget? trailing, VoidCallback? onTap}) => InkWell(
+  onTap: onTap,
+  borderRadius: BorderRadius.circular(18),
+  child: Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12), child: Row(children: [
+    iconBadge(icon, color),
+    const SizedBox(width: 12),
+    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF1E231F))),
+      if (subtitle != null) Padding(padding: const EdgeInsets.only(top: 2),
+        child: Text(subtitle, style: const TextStyle(fontSize: 11, color: muted))),
+    ])),
+    trailing ?? const Icon(Icons.chevron_right_rounded, color: Color(0xFFA3A9A1)),
+  ])),
+);
+
+/// A row with an on/off switch that is remembered on the phone.
+class PrefSwitch extends StatefulWidget {
+  final String prefKey, title; final String? subtitle; final IconData icon; final Color color; final bool def;
+  const PrefSwitch({super.key, required this.prefKey, required this.title, this.subtitle, required this.icon, required this.color, this.def = true});
+  @override State<PrefSwitch> createState() => _PrefSwitchState();
+}
+class _PrefSwitchState extends State<PrefSwitch> {
+  late bool _v = AppPrefs.getBool(widget.prefKey, def: widget.def);
+  @override Widget build(BuildContext context) => menuRow(widget.icon, widget.color, widget.title, subtitle: widget.subtitle,
+    onTap: () => _set(!_v),
+    trailing: Switch.adaptive(value: _v, activeColor: Colors.white, activeTrackColor: green, onChanged: _set));
+  void _set(bool v) { setState(() => _v = v); AppPrefs.setBool(widget.prefKey, v); }
+}
+
+void _needLogin(BuildContext context) => toast(context, 'Please log in to use this feature.');
+
+// ---------- PROFILE ----------
+class ProfilePage extends StatefulWidget {
+  const ProfilePage({super.key});
+  @override State<ProfilePage> createState() => _ProfilePageState();
+}
+class _ProfilePageState extends State<ProfilePage> {
+  Future<void> _open(Widget page) async {
+    await Navigator.push(context, MaterialPageRoute(builder: (_) => page));
+    if (mounted) setState(() {}); // name may have changed
+  }
+
+  Future<void> _logout() async {
+    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('Log out?', style: TextStyle(fontWeight: FontWeight.w900)),
+      content: const Text('You can log back in anytime. Your scan history stays saved on this phone.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel', style: TextStyle(color: muted))),
+        TextButton(onPressed: () => Navigator.pop(d, true), child: const Text('Log Out', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w800))),
+      ],
+    ));
+    if (ok != true) return;
+    if (firebaseReady) await FirebaseAuth.instance.signOut();
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LoginPage()), (_) => false);
+  }
+
+  Widget _header() {
+    final u = currentUser;
+    final guest = u == null;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 16),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        gradient: const LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: [Color(0xFF1F7A3A), Color(0xFF0B5A2B)]),
+        boxShadow: [BoxShadow(color: green.withOpacity(.25), blurRadius: 18, offset: const Offset(0, 8))],
+      ),
+      child: Column(children: [
+        Row(children: [
+          Container(
+            width: 62, height: 62,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white, border: Border.all(color: Colors.white.withOpacity(.5), width: 3)),
+            child: Center(child: guest
+              ? const Icon(Icons.person_rounded, color: green, size: 34)
+              : Text(initials(fullName()), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: green))),
+          ),
+          const SizedBox(width: 14),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(fullName(), maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
+            const SizedBox(height: 2),
+            Text(guest ? 'Browsing as guest' : (u?.email ?? ''), maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: TextStyle(fontSize: 11.5, color: Colors.white.withOpacity(.85))),
+            const SizedBox(height: 6),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(color: Colors.white.withOpacity(.18), borderRadius: BorderRadius.circular(10)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(guest ? Icons.lock_outline : Icons.verified_rounded, size: 12, color: Colors.white),
+                const SizedBox(width: 4),
+                Text(guest ? 'Guest mode' : 'Member since ${niceDate(u?.metadata.creationTime)}',
+                  style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: Colors.white)),
+              ]),
+            ),
+          ])),
+          if (!guest) Material(color: Colors.white.withOpacity(.18), shape: const CircleBorder(), child: InkWell(
+            customBorder: const CircleBorder(), onTap: () => _open(const PersonalInfoPage()),
+            child: const Padding(padding: EdgeInsets.all(9), child: Icon(Icons.edit_rounded, color: Colors.white, size: 18)))),
+        ]),
+        const SizedBox(height: 16),
+        if (guest)
+          Row(children: [
+            Expanded(child: SizedBox(height: 40, child: ElevatedButton(
+              onPressed: () => openLogin(context),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.white, foregroundColor: green, elevation: 0, shape: const StadiumBorder()),
+              child: const Text('Log In', style: TextStyle(fontWeight: FontWeight.w800))))),
+            const SizedBox(width: 10),
+            Expanded(child: SizedBox(height: 40, child: OutlinedButton(
+              onPressed: () => openRegister(context),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: Colors.white), shape: const StadiumBorder()),
+              child: const Text('Create Account', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w800))))),
+          ])
+        else
+          ValueListenableBuilder<List<Scan>>(valueListenable: ScanStore.I.scans, builder: (_, __, ___) => Container(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            decoration: BoxDecoration(color: Colors.white.withOpacity(.14), borderRadius: BorderRadius.circular(14)),
+            child: Row(children: [
+              _stat('${ScanStore.I.total}', 'Scans'), _div(),
+              _stat('${ScanStore.I.fresh}', 'Fresh'), _div(),
+              _stat('${ScanStore.I.saved}', 'Saved'),
+            ]),
+          )),
+      ]),
+    );
+  }
+  Widget _stat(String v, String l) => Expanded(child: Column(children: [
+    Text(v, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: Colors.white)),
+    Text(l, style: TextStyle(fontSize: 10.5, color: Colors.white.withOpacity(.8))),
+  ]));
+  Widget _div() => Container(width: 1, height: 28, color: Colors.white.withOpacity(.25));
+
+  @override Widget build(BuildContext context) {
+    final guest = currentUser == null;
+    return AppPage(tab: 4, child: SingleChildScrollView(padding: const EdgeInsets.fromLTRB(16, 14, 16, 28), child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Text('Profile', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: _profInk)),
+      const SizedBox(height: 14),
+      _header(),
+      const SizedBox(height: 20),
+      sectionLabel('ACCOUNT'),
+      groupCard([
+        menuRow(Icons.person_outline_rounded, const Color(0xFF16A34A), 'Personal Information', subtitle: 'Name, email and password',
+          onTap: () => guest ? _needLogin(context) : _open(const PersonalInfoPage())),
+        menuRow(Icons.tune_rounded, const Color(0xFF0EA5E9), 'App Settings', subtitle: 'History, haptics and data',
+          onTap: () => _open(const AppSettingsPage())),
+        menuRow(Icons.translate_rounded, const Color(0xFF8B5CF6), 'Language', subtitle: AppPrefs.getString('set_language', def: 'English'),
+          onTap: () => _open(const LanguagePage())),
+        menuRow(Icons.notifications_none_rounded, const Color(0xFFF59E0B), 'Notifications', subtitle: 'Reminders and tips',
+          onTap: () => _open(const NotificationsPage())),
+      ]),
+      sectionLabel('SUPPORT'),
+      groupCard([
+        menuRow(Icons.help_outline_rounded, const Color(0xFF14B8A6), 'Help Center', subtitle: 'Answers to common questions',
+          onTap: () => _open(const HelpCenterPage())),
+        menuRow(Icons.rate_review_outlined, const Color(0xFFEC4899), 'Feedback', subtitle: 'Tell us what you think',
+          onTap: () => _open(const FeedbackPage())),
+        menuRow(Icons.info_outline_rounded, const Color(0xFF64748B), 'About Fruitectives 2.0', subtitle: 'Version $kAppVersion',
+          onTap: () => _open(const AboutPage())),
+      ]),
+      if (!guest) SizedBox(width: double.infinity, height: 50, child: OutlinedButton.icon(
+        onPressed: _logout,
+        icon: const Icon(Icons.logout_rounded, color: Color(0xFFDC2626), size: 20),
+        label: const Text('Log Out', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w800, fontSize: 15)),
+        style: OutlinedButton.styleFrom(backgroundColor: Colors.white, side: const BorderSide(color: Color(0xFFFCA5A5)), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16))),
+      )),
+      const SizedBox(height: 16),
+      const Center(child: Text('FRUITECTIVES 2.0 • v$kAppVersion', style: TextStyle(color: muted, fontSize: 10, letterSpacing: 1))),
+    ])));
+  }
+}
+
+// ---------- PERSONAL INFORMATION ----------
+class PersonalInfoPage extends StatefulWidget {
+  const PersonalInfoPage({super.key});
+  @override State<PersonalInfoPage> createState() => _PersonalInfoPageState();
+}
+class _PersonalInfoPageState extends State<PersonalInfoPage> {
+  late final _name = TextEditingController(text: currentUser?.displayName ?? '');
+  bool _saving = false;
+  @override void dispose() { _name.dispose(); super.dispose(); }
+
+  Future<void> _saveName() async {
+    final n = _name.text.trim();
+    if (n.isEmpty) { toast(context, 'Please enter your name.'); return; }
+    setState(() => _saving = true);
+    try {
+      await currentUser?.updateDisplayName(n);
+      await currentUser?.reload();
+      if (mounted) { FocusScope.of(context).unfocus(); toast(context, 'Name updated.'); }
+    } catch (e) { if (mounted) toast(context, authError(e)); }
+    if (mounted) setState(() => _saving = false);
+  }
+
+  Future<void> _resetPassword() async {
+    final email = currentUser?.email;
+    if (email == null) return;
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (!mounted) return;
+      showDialog(context: context, builder: (d) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Check your email', style: TextStyle(fontWeight: FontWeight.w900)),
+        content: Text('We sent a link to $email. Open it to set a new password. (Check your Spam folder if you don\'t see it.)'),
+        actions: [TextButton(onPressed: () => Navigator.pop(d), child: const Text('OK', style: TextStyle(color: green, fontWeight: FontWeight.w800)))],
+      ));
+    } catch (e) { if (mounted) toast(context, authError(e)); }
+  }
+
+  Future<void> _verifyEmail() async {
+    try {
+      await currentUser?.sendEmailVerification();
+      if (mounted) toast(context, 'Verification email sent to ${currentUser?.email}.');
+    } catch (e) { if (mounted) toast(context, authError(e)); }
+  }
+
+  Widget _info(IconData icon, String label, String value, {Widget? trailing}) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+    child: Row(children: [
+      iconBadge(icon, const Color(0xFF16A34A)), const SizedBox(width: 12),
+      Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(label, style: const TextStyle(fontSize: 10.5, color: muted)),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: Color(0xFF1E231F))),
+      ])),
+      if (trailing != null) trailing,
+    ]),
+  );
+
+  @override Widget build(BuildContext context) {
+    final u = currentUser;
+    if (u == null) return const SubPage(title: 'Personal Information', children: [LoginRequired(title: 'Log in required', message: 'Log in to view and edit your personal information.')]);
+    return SubPage(title: 'Personal Information', subtitle: 'Manage your account details', children: [
+      Center(child: Container(width: 84, height: 84,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: const Color(0xFFE5F0DE), border: Border.all(color: Colors.white, width: 4),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(.08), blurRadius: 12)]),
+        child: Center(child: Text(initials(fullName()), style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w900, color: green))))),
+      const SizedBox(height: 20),
+      sectionLabel('FULL NAME'),
+      Container(
+        padding: const EdgeInsets.fromLTRB(14, 4, 6, 4),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEDEFE8))),
+        child: Row(children: [
+          const Icon(Icons.badge_outlined, color: green, size: 20), const SizedBox(width: 10),
+          Expanded(child: TextField(controller: _name, textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(border: InputBorder.none, hintText: 'Your full name'),
+            style: const TextStyle(fontWeight: FontWeight.w700))),
+          _saving
+            ? const Padding(padding: EdgeInsets.all(12), child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: green)))
+            : TextButton(onPressed: _saveName, child: const Text('Save', style: TextStyle(color: green, fontWeight: FontWeight.w800))),
+        ]),
+      ),
+      const SizedBox(height: 4),
+      const Padding(padding: EdgeInsets.only(left: 4, bottom: 14), child: Text('Your first name is used in the Home greeting.', style: TextStyle(fontSize: 10.5, color: muted))),
+      sectionLabel('ACCOUNT'),
+      groupCard([
+        _info(Icons.mail_outline_rounded, 'Email address', u.email ?? '—', trailing: u.emailVerified
+          ? const Row(mainAxisSize: MainAxisSize.min, children: [Icon(Icons.verified_rounded, color: green, size: 16), SizedBox(width: 3), Text('Verified', style: TextStyle(fontSize: 10.5, color: green, fontWeight: FontWeight.w700))])
+          : TextButton(onPressed: _verifyEmail, child: const Text('Verify', style: TextStyle(color: Color(0xFFD97706), fontWeight: FontWeight.w800)))),
+        _info(Icons.calendar_today_outlined, 'Member since', niceDate(u.metadata.creationTime)),
+        _info(Icons.login_rounded, 'Last sign-in', niceDate(u.metadata.lastSignInTime)),
+      ]),
+      sectionLabel('SECURITY'),
+      groupCard([
+        menuRow(Icons.lock_reset_rounded, const Color(0xFFDC2626), 'Change Password', subtitle: 'We\'ll email you a secure reset link', onTap: _resetPassword),
+      ]),
+    ]);
+  }
+}
+
+// ---------- APP SETTINGS ----------
+class AppSettingsPage extends StatelessWidget {
+  const AppSettingsPage({super.key});
+  Future<void> _clearHistory(BuildContext context) async {
+    if (currentUser == null) { _needLogin(context); return; }
+    final ok = await showDialog<bool>(context: context, builder: (d) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('Clear scan history?', style: TextStyle(fontWeight: FontWeight.w900)),
+      content: const Text('This deletes all your scans and saved results on this phone. This cannot be undone.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancel', style: TextStyle(color: muted))),
+        TextButton(onPressed: () => Navigator.pop(d, true), child: const Text('Clear', style: TextStyle(color: Color(0xFFDC2626), fontWeight: FontWeight.w800))),
+      ],
+    ));
+    if (ok != true) return;
+    await ScanStore.I.clear();
+    if (context.mounted) toast(context, 'Scan history cleared.');
+  }
+
+  @override Widget build(BuildContext context) => SubPage(title: 'App Settings', subtitle: 'Customize how Fruitectives works', children: [
+    sectionLabel('SCANNING'),
+    groupCard(const [
+      PrefSwitch(prefKey: 'set_save_history', icon: Icons.history_rounded, color: Color(0xFF16A34A), title: 'Save scan history', subtitle: 'Keep your results in History'),
+      PrefSwitch(prefKey: 'set_haptics', icon: Icons.vibration_rounded, color: Color(0xFF0EA5E9), title: 'Vibrate when done', subtitle: 'Short vibration when analysis finishes'),
+    ]),
+    sectionLabel('DATA'),
+    groupCard([
+      ValueListenableBuilder<List<Scan>>(valueListenable: ScanStore.I.scans, builder: (_, list, __) => menuRow(
+        Icons.delete_outline_rounded, const Color(0xFFDC2626), 'Clear scan history',
+        subtitle: currentUser == null ? 'Log in to manage history' : '${list.length} scan${list.length == 1 ? '' : 's'} saved on this phone',
+        onTap: () => _clearHistory(context))),
+    ]),
+    sectionLabel('APP'),
+    groupCard([
+      menuRow(Icons.memory_rounded, const Color(0xFF8B5CF6), 'AI model', subtitle: 'Runs on your phone — works offline', trailing: const SizedBox()),
+      menuRow(Icons.info_outline_rounded, const Color(0xFF64748B), 'Version', trailing: const Text(kAppVersion, style: TextStyle(color: muted, fontWeight: FontWeight.w700))),
+    ]),
+  ]);
+}
+
+// ---------- LANGUAGE ----------
+class LanguagePage extends StatefulWidget {
+  const LanguagePage({super.key});
+  @override State<LanguagePage> createState() => _LanguagePageState();
+}
+class _LanguagePageState extends State<LanguagePage> {
+  static const _langs = [('English', 'English', '🇺🇸'), ('Filipino', 'Filipino (Tagalog)', '🇵🇭'), ('Cebuano', 'Cebuano (Bisaya)', '🇵🇭')];
+  late String _sel = AppPrefs.getString('set_language', def: 'English');
+  @override Widget build(BuildContext context) => SubPage(title: 'Language', subtitle: 'Choose your preferred language', children: [
+    groupCard([
+      for (final l in _langs) menuRow(Icons.language_rounded, const Color(0xFF8B5CF6), l.$2,
+        subtitle: l.$1 == 'English' ? 'Available now' : 'Coming soon',
+        trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(l.$3, style: const TextStyle(fontSize: 18)), const SizedBox(width: 8),
+          Icon(_sel == l.$1 ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded, color: _sel == l.$1 ? green : const Color(0xFFB8BDB6)),
+        ]),
+        onTap: () { setState(() => _sel = l.$1); AppPrefs.setString('set_language', l.$1); }),
+    ]),
+    Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: const Color(0xFFF3EEFD), borderRadius: BorderRadius.circular(14)),
+      child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Icon(Icons.info_outline_rounded, color: Color(0xFF7C3AED), size: 18), SizedBox(width: 10),
+        Expanded(child: Text('The app is currently in English. Your choice is saved and will be applied once translations are added.',
+          style: TextStyle(fontSize: 11.5, color: Color(0xFF4C1D95), height: 1.45))),
+      ]),
+    ),
+  ]);
+}
+
+// ---------- NOTIFICATIONS ----------
+class NotificationsPage extends StatelessWidget {
+  const NotificationsPage({super.key});
+  @override Widget build(BuildContext context) => SubPage(title: 'Notifications', subtitle: 'Choose what you want to hear about', children: [
+    sectionLabel('REMINDERS'),
+    groupCard(const [
+      PrefSwitch(prefKey: 'notif_freshness', icon: Icons.eco_outlined, color: Color(0xFF16A34A), title: 'Freshness reminders', subtitle: 'Before a saved fruit\'s shelf-life ends'),
+      PrefSwitch(prefKey: 'notif_scan', icon: Icons.center_focus_strong_outlined, color: Color(0xFF0EA5E9), title: 'Scan results', subtitle: 'When an analysis is complete'),
+    ]),
+    sectionLabel('UPDATES'),
+    groupCard(const [
+      PrefSwitch(prefKey: 'notif_tips', icon: Icons.lightbulb_outline_rounded, color: Color(0xFFF59E0B), title: 'Fruit tips', subtitle: 'Storage and nutrition tips', def: false),
+      PrefSwitch(prefKey: 'notif_news', icon: Icons.campaign_outlined, color: Color(0xFFEC4899), title: 'App updates', subtitle: 'New features and improvements', def: false),
+    ]),
+    const Text('Your choices are saved on this phone. Push notifications will start once they are enabled in a future update.',
+      style: TextStyle(fontSize: 10.5, color: muted, height: 1.45)),
+  ]);
+}
+
+// ---------- HELP CENTER ----------
+class HelpCenterPage extends StatelessWidget {
+  const HelpCenterPage({super.key});
+  static const _faq = [
+    ('How do I scan a fruit?', 'Tap the green Scan button in the bottom bar, then Take Photo or Choose from Gallery. Keep one fruit in the centre of the photo.'),
+    ('Why does it say "No fruit detected"?', 'The AI could not find a fruit it knows. Use good light, a plain background, and make sure the whole fruit is in the photo.'),
+    ('Which fruits are supported?', 'The AI model currently recognises apple, banana, mango, orange, pear and peach, including fresh and rotten ones.'),
+    ('How accurate are the results?', 'Each result shows a confidence score. Results are a helpful guide, not a food-safety guarantee — always check the fruit yourself.'),
+    ('Does scanning need internet?', 'No. The AI model runs on your phone, so scanning works offline. Logging in and creating an account need internet.'),
+    ('Where is my history saved?', 'Your scans are saved on this phone under your account. Guests can scan, but their results are not saved.'),
+    ('How do I change my password?', 'Go to Profile → Personal Information → Change Password. We will email you a link to set a new one.'),
+  ];
+  @override Widget build(BuildContext context) => SubPage(title: 'Help Center', subtitle: 'Frequently asked questions', children: [
+    Container(
+      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(bottom: 16),
+      decoration: BoxDecoration(borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(colors: [Color(0xFFE6F7F4), Color(0xFFF0FAF2)])),
+      child: const Row(children: [
+        Text('🍎', style: TextStyle(fontSize: 34)), SizedBox(width: 12),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('How can we help?', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: _profInk)),
+          SizedBox(height: 3),
+          Text('Tap a question below to see the answer.', style: TextStyle(fontSize: 11.5, color: muted)),
+        ])),
+      ]),
+    ),
+    Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(18), border: Border.all(color: const Color(0xFFEDEFE8))),
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: Column(children: [
+          for (var i = 0; i < _faq.length; i++) ...[
+            ExpansionTile(
+              leading: iconBadge(Icons.help_outline_rounded, const Color(0xFF14B8A6)),
+              iconColor: green, collapsedIconColor: const Color(0xFFA3A9A1),
+              title: Text(_faq[i].$1, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+              childrenPadding: const EdgeInsets.fromLTRB(62, 0, 16, 14),
+              children: [Align(alignment: Alignment.centerLeft, child: Text(_faq[i].$2, style: const TextStyle(fontSize: 12, color: Color(0xFF4B524C), height: 1.5)))],
+            ),
+            if (i < _faq.length - 1) const Divider(height: 1, indent: 62, color: Color(0xFFF0F1EC)),
+          ],
+        ]),
+      ),
+    ),
+    const SizedBox(height: 16),
+    groupCard([
+      menuRow(Icons.support_agent_rounded, const Color(0xFFEC4899), 'Still need help?', subtitle: 'Send us a message',
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FeedbackPage()))),
+    ]),
+  ]);
+}
+
+// ---------- FEEDBACK ----------
+class FeedbackPage extends StatefulWidget {
+  const FeedbackPage({super.key});
+  @override State<FeedbackPage> createState() => _FeedbackPageState();
+}
+class _FeedbackPageState extends State<FeedbackPage> {
+  int _rating = 0;
+  String _type = 'Suggestion';
+  final _msg = TextEditingController();
+  @override void dispose() { _msg.dispose(); super.dispose(); }
+
+  Future<void> _send() async {
+    if (_rating == 0) { toast(context, 'Please choose a star rating.'); return; }
+    if (_msg.text.trim().isEmpty) { toast(context, 'Please write a short message.'); return; }
+    final body = 'Rating: $_rating/5\nType: $_type\nFrom: ${currentUser?.email ?? 'Guest'}\nApp version: $kAppVersion\n\n${_msg.text.trim()}';
+    final uri = Uri(scheme: 'mailto', path: kSupportEmail, query: 'subject=${Uri.encodeComponent('Fruitectives feedback: $_type')}&body=${Uri.encodeComponent(body)}');
+    var opened = false;
+    try { opened = await launchUrl(uri); } catch (_) {}
+    if (!mounted) return;
+    if (!opened) {
+      await Clipboard.setData(ClipboardData(text: body));
+      if (!mounted) return;
+      toast(context, 'No email app found. Your feedback was copied — paste it in an email to $kSupportEmail.');
+      return;
+    }
+    showDialog(context: context, builder: (d) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      title: const Text('Thank you! 💚', style: TextStyle(fontWeight: FontWeight.w900)),
+      content: const Text('Your email app is open with your feedback. Just tap Send there.'),
+      actions: [TextButton(onPressed: () { Navigator.pop(d); Navigator.maybePop(context); }, child: const Text('Done', style: TextStyle(color: green, fontWeight: FontWeight.w800)))],
+    ));
+  }
+
+  @override Widget build(BuildContext context) => SubPage(title: 'Feedback', subtitle: 'Help us make Fruitectives better', children: [
+    groupCard([Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+      const Text('How would you rate the app?', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800)),
+      const SizedBox(height: 10),
+      Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+        for (var i = 1; i <= 5; i++) GestureDetector(
+          onTap: () => setState(() => _rating = i),
+          child: Padding(padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Icon(i <= _rating ? Icons.star_rounded : Icons.star_outline_rounded, size: 38, color: i <= _rating ? const Color(0xFFF59E0B) : const Color(0xFFCBD0C9)))),
+      ]),
+      const SizedBox(height: 4),
+      Text(const ['Tap a star', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent!'][_rating], style: const TextStyle(fontSize: 11.5, color: muted)),
+    ]))]),
+    sectionLabel('TYPE'),
+    Wrap(spacing: 8, runSpacing: 8, children: [
+      for (final t in const ['Suggestion', 'Bug report', 'Compliment', 'Other']) ChoiceChip(
+        label: Text(t), selected: _type == t, onSelected: (_) => setState(() => _type = t),
+        selectedColor: const Color(0xFFDCF0D6), backgroundColor: Colors.white,
+        side: BorderSide(color: _type == t ? green : const Color(0xFFE3E6DF)),
+        labelStyle: TextStyle(fontWeight: FontWeight.w700, color: _type == t ? green : const Color(0xFF4B524C)),
+        showCheckmark: false, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      ),
+    ]),
+    const SizedBox(height: 16),
+    sectionLabel('MESSAGE'),
+    Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFEDEFE8))),
+      child: TextField(controller: _msg, maxLines: 5, maxLength: 500,
+        decoration: const InputDecoration(border: InputBorder.none, hintText: 'Tell us what you like or what we can improve...')),
+    ),
+    const SizedBox(height: 18),
+    PrimaryButton(text: 'Send Feedback', icon: Icons.send_rounded, onTap: _send),
+  ]);
+}
+
+// ---------- ABOUT ----------
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+  Widget _feature(IconData i, Color c, String t, String d) => Padding(padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10), child: Row(children: [
+    iconBadge(i, c), const SizedBox(width: 12),
+    Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(t, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+      Text(d, style: const TextStyle(fontSize: 11, color: muted)),
+    ])),
+  ]));
+  @override Widget build(BuildContext context) => SubPage(title: 'About', children: [
+    Center(child: Column(children: [
+      Container(width: 88, height: 88,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(24),
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(.12), blurRadius: 16, offset: const Offset(0, 6))]),
+        child: Padding(padding: const EdgeInsets.all(14), child: Image.asset('assets/images/logo.png'))),
+      const SizedBox(height: 14),
+      const Text('FRUITECTIVES 2.0', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, letterSpacing: .5)),
+      const SizedBox(height: 4),
+      Container(padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        decoration: BoxDecoration(color: const Color(0xFFE5F0DE), borderRadius: BorderRadius.circular(10)),
+        child: const Text('Version $kAppVersion', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: green))),
+      const SizedBox(height: 10),
+      const Text('Smarter Detection. Deeper Insights.\nBetter Decisions.', textAlign: TextAlign.center,
+        style: TextStyle(fontSize: 12.5, color: Color(0xFF4A2511), fontWeight: FontWeight.w600, height: 1.45)),
+    ])),
+    const SizedBox(height: 20),
+    groupCard([Padding(padding: const EdgeInsets.all(16), child: const Text(
+      'Fruitectives 2.0 is an AI-powered fruit analysis app. Take a photo of a fruit and the app identifies it, checks its ripeness and freshness, '
+      'looks for visible defects, and gives you shelf-life, storage and nutrition information — helping you make smarter choices and reduce food waste.',
+      style: TextStyle(fontSize: 12.5, height: 1.55, color: Color(0xFF3F4A42))))]),
+    sectionLabel('FEATURES'),
+    groupCard([
+      _feature(Icons.center_focus_strong_outlined, const Color(0xFF16A34A), 'Fruit identification', 'Recognises the fruit in your photo'),
+      _feature(Icons.contrast, const Color(0xFFF59E0B), 'Ripeness & freshness', 'Checks ripeness stage and spoilage'),
+      _feature(Icons.calendar_month_outlined, const Color(0xFF8B5CF6), 'Shelf-life & storage', 'Tells you how to store and when to eat'),
+      _feature(Icons.restaurant_menu_rounded, const Color(0xFF14B8A6), 'Nutrition', 'Calories, macros and key vitamins'),
+    ]),
+    sectionLabel('BUILT WITH'),
+    groupCard([
+      _feature(Icons.flutter_dash, const Color(0xFF0EA5E9), 'Flutter', 'Cross-platform mobile app framework'),
+      _feature(Icons.local_fire_department_outlined, const Color(0xFFF97316), 'Firebase Authentication', 'Secure sign-in and accounts'),
+      _feature(Icons.memory_rounded, const Color(0xFF8B5CF6), 'On-device AI model', 'Fruit detection that works offline'),
+    ]),
+    const SizedBox(height: 4),
+    const Center(child: Text('Developed by Group Fruitectives\n© 2026 Fruitectives. All rights reserved.', textAlign: TextAlign.center,
+      style: TextStyle(fontSize: 10.5, color: muted, height: 1.5))),
+  ]);
 }
